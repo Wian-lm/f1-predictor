@@ -1,0 +1,1030 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PIT WALL — F1 Data Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;900&family=IBM+Plex+Mono:wght@300;400;500&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #080a0e;
+    --surface: #0d1117;
+    --surface2: #131920;
+    --surface3: #1a2332;
+    --border: #1e2d3d;
+    --border2: #253647;
+    --accent: #e8002d;
+    --accent2: #ff6b00;
+    --accent3: #00d4ff;
+    --gold: #ffd700;
+    --silver: #c0c0c0;
+    --bronze: #cd7f32;
+    --text: #e8edf2;
+    --text2: #8fa3b8;
+    --text3: #4a6278;
+    --green: #00ff87;
+    --yellow: #f5c842;
+    --white: #ffffff;
+    --soft: #00bfff;
+    --medium: #ffd700;
+    --hard: #e8e8e8;
+    --inter: #39b54a;
+    --wet: #0067ff;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 13px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  body::before {
+    content:'';
+    position:fixed;
+    inset:0;
+    background:
+      radial-gradient(ellipse 80% 40% at 50% -10%, rgba(232,0,45,0.07) 0%, transparent 70%),
+      radial-gradient(ellipse 60% 30% at 80% 110%, rgba(0,212,255,0.04) 0%, transparent 60%);
+    pointer-events:none;
+    z-index:0;
+  }
+
+  /* HEADER */
+  header {
+    position:sticky; top:0; z-index:100;
+    background:rgba(8,10,14,0.97);
+    backdrop-filter:blur(20px);
+    border-bottom:1px solid var(--border);
+    padding:0 24px;
+    display:flex; align-items:center; gap:24px; height:56px;
+  }
+  .logo {
+    font-family:'Orbitron',sans-serif;
+    font-weight:900; font-size:17px;
+    letter-spacing:0.15em; color:var(--white);
+    display:flex; align-items:center; gap:10px;
+  }
+  .logo-pip { color:var(--accent); font-size:22px; }
+  .logo-sub {
+    font-size:8px; font-family:'IBM Plex Mono',monospace;
+    color:var(--text3); letter-spacing:0.2em; display:block; margin-top:1px;
+  }
+  .header-sep { flex:1; }
+  .live-indicator {
+    display:flex; align-items:center; gap:6px;
+    font-family:'IBM Plex Mono',monospace; font-size:10px;
+    color:var(--text2); letter-spacing:0.1em;
+  }
+  .live-dot {
+    width:6px; height:6px; border-radius:50%;
+    background:var(--green); animation:pulse 2s infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.8)} }
+
+  /* NAV */
+  nav {
+    background:var(--surface); border-bottom:1px solid var(--border);
+    padding:0 24px; display:flex;
+    position:sticky; top:56px; z-index:99; overflow-x:auto;
+  }
+  nav::-webkit-scrollbar { display:none; }
+  .tab {
+    padding:12px 18px;
+    font-family:'Orbitron',sans-serif; font-size:8.5px;
+    font-weight:600; letter-spacing:0.12em; color:var(--text3);
+    cursor:pointer; border-bottom:2px solid transparent;
+    white-space:nowrap; transition:all .2s;
+    display:flex; align-items:center; gap:6px; user-select:none;
+  }
+  .tab:hover { color:var(--text2); }
+  .tab.active { color:var(--white); border-bottom-color:var(--accent); }
+
+  /* SESSION BAR */
+  .session-bar {
+    background:var(--surface2); border-bottom:1px solid var(--border);
+    padding:10px 24px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  }
+  .slabel {
+    font-family:'IBM Plex Mono',monospace; font-size:9px;
+    letter-spacing:0.15em; color:var(--text3); text-transform:uppercase;
+  }
+  select {
+    background:var(--surface3); border:1px solid var(--border2);
+    color:var(--text); padding:5px 10px; border-radius:3px;
+    font-family:'IBM Plex Mono',monospace; font-size:11px;
+    cursor:pointer; outline:none; transition:border-color .2s;
+  }
+  select:hover, select:focus { border-color:var(--accent); }
+  .btn {
+    padding:5px 16px; background:var(--accent); color:#fff;
+    border:none; border-radius:3px;
+    font-family:'Orbitron',sans-serif; font-size:9px; font-weight:700;
+    letter-spacing:0.12em; cursor:pointer; transition:all .2s;
+  }
+  .btn:hover { background:#ff1744; transform:translateY(-1px); }
+  .btn:disabled { background:var(--surface3); color:var(--text3); cursor:not-allowed; transform:none; }
+  #session-info {
+    font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--text3); margin-left:4px;
+  }
+
+  /* MAIN */
+  main {
+    padding:20px 24px; max-width:1600px; margin:0 auto; position:relative; z-index:1;
+  }
+
+  /* PANELS */
+  .panel { display:none; }
+  .panel.active { display:block; }
+
+  /* CARD */
+  .card {
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:4px; overflow:hidden;
+    animation:fadeIn .3s ease both;
+  }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+  .card-hdr {
+    padding:9px 14px; border-bottom:1px solid var(--border);
+    display:flex; align-items:center; justify-content:space-between;
+    background:var(--surface2);
+  }
+  .card-title {
+    font-family:'Orbitron',sans-serif; font-size:8.5px; font-weight:700;
+    letter-spacing:0.15em; color:var(--text2);
+    display:flex; align-items:center; gap:7px;
+  }
+  .card-body { padding:14px; }
+
+  /* GRID */
+  .g2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .g3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; }
+  .g4 { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }
+  .mb { margin-bottom:14px; }
+
+  /* STAT CARD */
+  .stat-card {
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:4px; padding:14px 16px; position:relative;
+    overflow:hidden; animation:fadeIn .3s ease both;
+  }
+  .stat-card::before {
+    content:''; position:absolute; top:0; left:0; right:0;
+    height:2px; background:var(--accent);
+  }
+  .stat-lbl {
+    font-family:'IBM Plex Mono',monospace; font-size:8.5px;
+    color:var(--text3); letter-spacing:0.12em; text-transform:uppercase; margin-bottom:5px;
+  }
+  .stat-val {
+    font-family:'Orbitron',sans-serif; font-size:22px;
+    font-weight:700; color:var(--white); line-height:1;
+  }
+  .stat-sub {
+    font-family:'IBM Plex Mono',monospace; font-size:10px;
+    color:var(--text2); margin-top:4px;
+  }
+
+  /* TABLE */
+  .tbl { width:100%; border-collapse:collapse; }
+  .tbl th {
+    font-family:'Orbitron',sans-serif; font-size:7.5px; font-weight:600;
+    letter-spacing:0.15em; color:var(--text3); text-align:left;
+    padding:8px 12px; border-bottom:1px solid var(--border);
+    white-space:nowrap; background:var(--surface2);
+    position:sticky; top:0;
+  }
+  .tbl td {
+    padding:7px 12px; border-bottom:1px solid rgba(30,45,61,.5);
+    font-family:'IBM Plex Mono',monospace; font-size:11px;
+    color:var(--text); white-space:nowrap;
+  }
+  .tbl tr:hover td { background:rgba(26,35,50,.5); }
+  .tbl tr:last-child td { border-bottom:none; }
+
+  .tbl-wrap { max-height:440px; overflow-y:auto; }
+  .tbl-wrap::-webkit-scrollbar { width:4px; }
+  .tbl-wrap::-webkit-scrollbar-track { background:var(--surface2); }
+  .tbl-wrap::-webkit-scrollbar-thumb { background:var(--border2); border-radius:2px; }
+
+  /* BADGES */
+  .pos-badge {
+    display:inline-flex; align-items:center; justify-content:center;
+    width:22px; height:22px; border-radius:3px;
+    font-family:'Orbitron',sans-serif; font-size:10px; font-weight:700;
+  }
+  .p1 { background:var(--gold); color:#000; }
+  .p2 { background:var(--silver); color:#000; }
+  .p3 { background:var(--bronze); color:#fff; }
+  .pn { background:var(--surface3); color:var(--text2); }
+
+  .tag {
+    display:inline-block; padding:2px 6px; border-radius:2px;
+    font-family:'IBM Plex Mono',monospace; font-size:9px; font-weight:500;
+  }
+  .t-green { background:rgba(0,255,135,.13); color:var(--green); }
+  .t-red { background:rgba(232,0,45,.13); color:var(--accent); }
+  .t-blue { background:rgba(0,212,255,.13); color:var(--accent3); }
+  .t-orange { background:rgba(255,107,0,.13); color:var(--accent2); }
+  .t-grey { background:var(--surface3); color:var(--text2); }
+  .t-purple { background:rgba(149,88,255,.15); color:#9558ff; }
+
+  /* DRIVER ROW */
+  .drv-tag { display:inline-flex; align-items:center; gap:7px; }
+  .drv-dot { width:3px; height:16px; border-radius:1px; flex-shrink:0; }
+  .drv-abbr { font-family:'Orbitron',sans-serif; font-size:10px; font-weight:700; }
+  .drv-full { font-family:'IBM Plex Sans',sans-serif; font-size:11px; color:var(--text2); }
+
+  /* TYRE */
+  .tyre {
+    display:inline-flex; align-items:center; justify-content:center;
+    width:20px; height:20px; border-radius:50%;
+    font-weight:700; font-size:9px; font-family:'Orbitron',sans-serif;
+  }
+  .SOFT { background:var(--soft); color:#000; }
+  .MEDIUM { background:var(--medium); color:#000; }
+  .HARD { background:#555; color:var(--hard); }
+  .INTERMEDIATE { background:var(--inter); color:#000; }
+  .WET { background:var(--wet); color:#fff; }
+
+  /* LAP COLORS */
+  .lt-fast { color:var(--accent2); font-weight:500; }
+  .lt-pb { color:var(--green); }
+  .lt-norm { color:var(--text); }
+
+  /* WEATHER GRID */
+  .wx-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .wx-item {
+    background:var(--surface2); border:1px solid var(--border);
+    border-radius:3px; padding:10px 12px;
+  }
+  .wx-icon { font-size:20px; margin-bottom:3px; }
+  .wx-val { font-family:'Orbitron',sans-serif; font-size:16px; font-weight:600; color:var(--white); }
+  .wx-lbl { font-family:'IBM Plex Mono',monospace; font-size:8.5px; color:var(--text3); letter-spacing:.1em; margin-top:2px; }
+
+  /* RACE CONTROL */
+  .rc-feed { max-height:500px; overflow-y:auto; display:flex; flex-direction:column; gap:6px; }
+  .rc-feed::-webkit-scrollbar { width:4px; }
+  .rc-feed::-webkit-scrollbar-thumb { background:var(--border2); border-radius:2px; }
+  .rc-item {
+    display:flex; gap:10px; align-items:flex-start;
+    padding:8px 12px; border-radius:3px; background:var(--surface2);
+    border-left:3px solid var(--border2);
+  }
+  .rcGREEN { border-left-color:var(--green); }
+  .rcYELLOW { border-left-color:var(--yellow); }
+  .rcRED { border-left-color:var(--accent); }
+  .rcSC,.rcVSC { border-left-color:var(--accent2); }
+  .rc-msg { font-size:11px; color:var(--text); line-height:1.4; }
+  .rc-ts { font-family:'IBM Plex Mono',monospace; font-size:9px; color:var(--text3); margin-top:2px; }
+
+  /* RADIO */
+  .radio-feed { max-height:500px; overflow-y:auto; display:flex; flex-direction:column; gap:7px; }
+  .radio-feed::-webkit-scrollbar { width:4px; }
+  .radio-feed::-webkit-scrollbar-thumb { background:var(--border2); border-radius:2px; }
+  .radio-item {
+    background:var(--surface2); border:1px solid var(--border);
+    border-radius:3px; padding:9px 12px;
+    display:flex; gap:9px; align-items:center;
+  }
+  .radio-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+  .radio-abbr { font-family:'Orbitron',sans-serif; font-size:10px; font-weight:700; min-width:36px; }
+  .radio-ts { font-family:'IBM Plex Mono',monospace; font-size:9px; color:var(--text3); }
+  .play-btn {
+    background:var(--accent); border:none; border-radius:50%;
+    width:24px; height:24px; cursor:pointer; color:#fff; font-size:9px;
+    display:flex; align-items:center; justify-content:center;
+    margin-left:auto; flex-shrink:0; transition:background .2s;
+  }
+  .play-btn:hover { background:#ff1744; }
+
+  /* CHAMP BARS */
+  .champ-row { margin-bottom:10px; }
+  .champ-hdr { display:flex; justify-content:space-between; margin-bottom:4px; }
+  .champ-name { font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--text); }
+  .champ-pts { font-family:'Orbitron',sans-serif; font-size:11px; font-weight:700; color:var(--white); }
+  .bar-bg { height:6px; background:var(--surface3); border-radius:3px; overflow:hidden; }
+  .bar-fill { height:100%; border-radius:3px; transition:width .8s ease; }
+
+  /* LOADING / EMPTY */
+  .loading {
+    display:flex; flex-direction:column; align-items:center;
+    justify-content:center; padding:60px 20px; gap:14px;
+  }
+  .spinner {
+    width:30px; height:30px; border:2px solid var(--border2);
+    border-top-color:var(--accent); border-radius:50%;
+    animation:spin .8s linear infinite;
+  }
+  @keyframes spin { to{transform:rotate(360deg)} }
+  .loading-txt { font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--text3); letter-spacing:.15em; }
+  .empty { text-align:center; padding:48px 20px; }
+  .empty-ico { font-size:36px; opacity:.25; margin-bottom:10px; }
+  .empty-txt { font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--text3); letter-spacing:.1em; }
+
+  /* GAP BAR */
+  .gap-bg { display:inline-block; width:70px; height:4px; background:var(--surface3); border-radius:2px; vertical-align:middle; overflow:hidden; }
+  .gap-fill { height:100%; background:var(--accent3); border-radius:2px; }
+
+  @media(max-width:900px) {
+    .g2,.g3,.g4 { grid-template-columns:1fr; }
+    main { padding:12px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <span class="logo-pip">⬡</span>
+    <div>PIT WALL <span class="logo-sub">F1 DATA DASHBOARD · OPENF1 API</span></div>
+  </div>
+  <div class="header-sep"></div>
+  <div class="live-indicator"><div class="live-dot"></div><span>OPENF1 CONNECTED</span></div>
+</header>
+
+<nav>
+  <div class="tab active" onclick="switchTab('overview',this)">🏠 OVERVIEW</div>
+  <div class="tab" onclick="switchTab('timing',this)">⏱ LAP TIMING</div>
+  <div class="tab" onclick="switchTab('positions',this)">🏁 POSITIONS</div>
+  <div class="tab" onclick="switchTab('pitstops',this)">🔧 PIT STOPS</div>
+  <div class="tab" onclick="switchTab('weather',this)">🌦 WEATHER</div>
+  <div class="tab" onclick="switchTab('racecontrol',this)">🚩 RACE CONTROL</div>
+  <div class="tab" onclick="switchTab('radio',this)">📻 TEAM RADIO</div>
+  <div class="tab" onclick="switchTab('championship',this)">🏆 STANDINGS</div>
+</nav>
+
+<div class="session-bar">
+  <span class="slabel">SEASON</span>
+  <select id="sel-year" onchange="onYearChange()">
+    <option value="2025">2025</option>
+    <option value="2024" selected>2024</option>
+    <option value="2023">2023</option>
+  </select>
+  <span class="slabel">RACE WEEKEND</span>
+  <select id="sel-meeting" onchange="onMeetingChange()">
+    <option value="">— Select weekend —</option>
+  </select>
+  <span class="slabel">SESSION</span>
+  <select id="sel-session" onchange="onSessionChange()">
+    <option value="">— Select session —</option>
+  </select>
+  <button class="btn" id="load-btn" onclick="loadAll()" disabled>▶ LOAD DATA</button>
+  <span id="session-info"></span>
+</div>
+
+<main>
+
+<!-- OVERVIEW -->
+<div id="panel-overview" class="panel active">
+  <div id="ov-loading" class="loading">
+    <div class="empty-ico">🏎️</div>
+    <div class="loading-txt">SELECT A SESSION AND CLICK LOAD DATA</div>
+  </div>
+  <div id="ov-content" style="display:none">
+    <div class="g4 mb" id="stat-cards"></div>
+    <div class="g2">
+      <div class="card">
+        <div class="card-hdr"><div class="card-title">🏁 LATEST POSITIONS</div></div>
+        <div class="card-body" id="ov-positions"></div>
+      </div>
+      <div class="card">
+        <div class="card-hdr"><div class="card-title">🌦 LATEST WEATHER</div></div>
+        <div class="card-body" id="ov-weather"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- LAP TIMING -->
+<div id="panel-timing" class="panel">
+  <div id="tm-loading" class="loading"><div class="spinner"></div><div class="loading-txt">LOADING LAP DATA...</div></div>
+  <div id="tm-content" style="display:none">
+    <div class="mb" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <span class="slabel">DRIVER</span>
+      <select id="drv-filter" onchange="filterLaps()"><option value="">ALL</option></select>
+      <span class="slabel">SORT</span>
+      <select id="lap-sort" onchange="filterLaps()">
+        <option value="lap">LAP #</option>
+        <option value="time">LAP TIME</option>
+        <option value="driver">DRIVER</option>
+      </select>
+      <span id="lap-count" style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text3);margin-left:6px;"></span>
+    </div>
+    <div class="card">
+      <div class="card-hdr">
+        <div class="card-title">⏱ LAP TIMES</div>
+        <div id="fastest-tag"></div>
+      </div>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr>
+            <th>LAP</th><th>DRIVER</th><th>LAP TIME</th>
+            <th>S1</th><th>S2</th><th>S3</th>
+            <th>TYRE</th><th>SPEED TRAP</th><th>FLAG</th>
+          </tr></thead>
+          <tbody id="lap-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- POSITIONS -->
+<div id="panel-positions" class="panel">
+  <div id="ps-loading" class="loading"><div class="spinner"></div><div class="loading-txt">LOADING POSITIONS...</div></div>
+  <div id="ps-content" style="display:none">
+    <div class="card">
+      <div class="card-hdr"><div class="card-title">🏁 FINAL STANDINGS SNAPSHOT</div><span id="pos-count" style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text3);"></span></div>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>POS</th><th>DRIVER</th><th>TEAM</th><th>GAP VISUAL</th><th>LAST SEEN</th></tr></thead>
+          <tbody id="pos-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- PIT STOPS -->
+<div id="panel-pitstops" class="panel">
+  <div id="pit-loading" class="loading"><div class="spinner"></div><div class="loading-txt">LOADING PIT DATA...</div></div>
+  <div id="pit-content" style="display:none">
+    <div class="g2">
+      <div class="card">
+        <div class="card-hdr"><div class="card-title">🔧 PIT STOP LOG</div></div>
+        <div class="tbl-wrap">
+          <table class="tbl">
+            <thead><tr><th>DRIVER</th><th>LAP</th><th>STOP TIME</th><th>LANE TIME</th><th>RATING</th></tr></thead>
+            <tbody id="pit-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-hdr"><div class="card-title">⚡ FASTEST STOPS RANKING</div></div>
+        <div class="card-body" id="pit-ranking"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- WEATHER -->
+<div id="panel-weather" class="panel">
+  <div id="wx-loading" class="loading"><div class="spinner"></div><div class="loading-txt">LOADING WEATHER...</div></div>
+  <div id="wx-content" style="display:none">
+    <div class="g4 mb" id="wx-stats"></div>
+    <div class="card">
+      <div class="card-hdr"><div class="card-title">🌦 WEATHER LOG (MOST RECENT FIRST)</div></div>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr>
+            <th>TIME</th><th>AIR °C</th><th>TRACK °C</th>
+            <th>HUMIDITY %</th><th>PRESSURE hPa</th>
+            <th>WIND m/s</th><th>WIND DIR °</th><th>RAIN</th>
+          </tr></thead>
+          <tbody id="wx-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- RACE CONTROL -->
+<div id="panel-racecontrol" class="panel">
+  <div id="rc-loading" class="loading"><div class="spinner"></div><div class="loading-txt">LOADING RACE CONTROL...</div></div>
+  <div id="rc-content" style="display:none">
+    <div class="card">
+      <div class="card-hdr"><div class="card-title">🚩 RACE CONTROL MESSAGES</div><span id="rc-count" style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text3);"></span></div>
+      <div class="card-body rc-feed" id="rc-feed"></div>
+    </div>
+  </div>
+</div>
+
+<!-- TEAM RADIO -->
+<div id="panel-radio" class="panel">
+  <div id="rd-loading" class="loading"><div class="spinner"></div><div class="loading-txt">LOADING RADIO...</div></div>
+  <div id="rd-content" style="display:none">
+    <div class="mb" style="display:flex;gap:8px;align-items:center;">
+      <span class="slabel">FILTER DRIVER</span>
+      <select id="radio-drv-filter" onchange="filterRadio()"><option value="">ALL DRIVERS</option></select>
+      <span id="radio-count" style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text3);"></span>
+    </div>
+    <div class="card">
+      <div class="card-hdr"><div class="card-title">📻 TEAM RADIO FEED</div></div>
+      <div class="card-body radio-feed" id="radio-feed"></div>
+    </div>
+  </div>
+</div>
+
+<!-- CHAMPIONSHIP -->
+<div id="panel-championship" class="panel">
+  <div id="ch-loading" class="loading"><div class="spinner"></div><div class="loading-txt">LOADING STANDINGS...</div></div>
+  <div id="ch-content" style="display:none">
+    <div class="g2">
+      <div class="card">
+        <div class="card-hdr"><div class="card-title">👤 DRIVER CHAMPIONSHIP</div></div>
+        <div class="card-body" id="drv-standings"></div>
+      </div>
+      <div class="card">
+        <div class="card-hdr"><div class="card-title">🏎️ CONSTRUCTOR CHAMPIONSHIP</div></div>
+        <div class="card-body" id="con-standings"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</main>
+
+<script>
+// ──────────────────────────────────────────────────────────────
+// STATE
+// ──────────────────────────────────────────────────────────────
+const S = {
+  year:'2024', meetingKey:null, sessionKey:null,
+  meetings:[], sessions:[], drivers:{},
+  laps:[], positions:[], pitStops:[],
+  weather:[], raceControl:[], radio:[], standings:[]
+};
+
+const TEAM_COLORS = {
+  'Red Bull':'#3671C6','Mercedes':'#27F4D2','Ferrari':'#E8002D',
+  'McLaren':'#FF8000','Aston Martin':'#229971','Alpine':'#0093CC',
+  'Williams':'#64C4FF','AlphaTauri':'#5E8FAA','RB':'#6692FF',
+  'Sauber':'#52E252','Haas':'#B6BABD'
+};
+
+function driverColor(d) {
+  if (d?.team_colour) return '#' + d.team_colour;
+  if (d?.team_name) {
+    for (const [k,v] of Object.entries(TEAM_COLORS))
+      if (d.team_name.includes(k)) return v;
+  }
+  return '#5577aa';
+}
+
+// ──────────────────────────────────────────────────────────────
+// API
+// ──────────────────────────────────────────────────────────────
+const BASE = 'https://api.openf1.org/v1';
+async function apiFetch(ep, params={}) {
+  const u = new URL(BASE + ep);
+  Object.entries(params).forEach(([k,v]) => u.searchParams.set(k,v));
+  try {
+    const r = await fetch(u.toString());
+    if (!r.ok) return [];
+    return await r.json();
+  } catch { return []; }
+}
+
+// ──────────────────────────────────────────────────────────────
+// INIT
+// ──────────────────────────────────────────────────────────────
+async function init() { await loadMeetings(); }
+
+async function loadMeetings() {
+  const year = document.getElementById('sel-year').value;
+  const meetings = await apiFetch('/meetings', {year});
+  S.meetings = meetings.sort((a,b)=>new Date(a.date_start)-new Date(b.date_start));
+  const sel = document.getElementById('sel-meeting');
+  sel.innerHTML = '<option value="">— Select weekend —</option>';
+  S.meetings.forEach(m => {
+    const o = document.createElement('option');
+    o.value = m.meeting_key;
+    o.textContent = `${m.country_name} · ${m.meeting_name}`;
+    sel.appendChild(o);
+  });
+  document.getElementById('sel-session').innerHTML = '<option value="">— Select session —</option>';
+  document.getElementById('load-btn').disabled = true;
+}
+
+async function onYearChange() {
+  S.year = document.getElementById('sel-year').value;
+  await loadMeetings();
+}
+
+async function onMeetingChange() {
+  const mk = document.getElementById('sel-meeting').value;
+  if (!mk) return;
+  S.meetingKey = mk;
+  const sessions = await apiFetch('/sessions', {meeting_key: mk});
+  S.sessions = sessions;
+  const sel = document.getElementById('sel-session');
+  sel.innerHTML = '<option value="">— Select session —</option>';
+  sessions.forEach(s => {
+    const o = document.createElement('option');
+    o.value = s.session_key;
+    o.textContent = `${s.session_name} · ${s.session_type}`;
+    sel.appendChild(o);
+  });
+  document.getElementById('load-btn').disabled = true;
+}
+
+function onSessionChange() {
+  const key = document.getElementById('sel-session').value;
+  S.sessionKey = key || null;
+  document.getElementById('load-btn').disabled = !key;
+}
+
+// ──────────────────────────────────────────────────────────────
+// LOAD ALL
+// ──────────────────────────────────────────────────────────────
+async function loadAll() {
+  if (!S.sessionKey) return;
+  const btn = document.getElementById('load-btn');
+  btn.disabled = true; btn.textContent = '⟳ LOADING...';
+
+  // show spinners everywhere
+  const ids = ['ov','tm','ps','pit','wx','rc','rd','ch'];
+  ids.forEach(id => {
+    const l = document.getElementById(id+'-loading');
+    const c = document.getElementById(id+'-content');
+    if(l) { l.style.display='flex'; l.innerHTML='<div class="spinner"></div><div class="loading-txt">FETCHING FROM OPENF1...</div>'; }
+    if(c) c.style.display='none';
+  });
+
+  const sk = S.sessionKey;
+
+  const [drivers, laps, positions, pitStops, weather, raceControl, radio, standings] = await Promise.all([
+    apiFetch('/drivers', {session_key: sk}),
+    apiFetch('/laps', {session_key: sk}),
+    apiFetch('/position', {session_key: sk}),
+    apiFetch('/pit', {session_key: sk}),
+    apiFetch('/weather', {session_key: sk}),
+    apiFetch('/race_control', {session_key: sk}),
+    apiFetch('/team_radio', {session_key: sk}),
+    apiFetch('/standings', {session_key: sk}),
+  ]);
+
+  S.drivers = {};
+  drivers.forEach(d => { S.drivers[d.driver_number] = d; });
+  S.laps = laps;
+  S.positions = positions;
+  S.pitStops = pitStops;
+  S.weather = weather;
+  S.raceControl = raceControl;
+  S.radio = radio;
+  S.standings = standings;
+
+  // session info
+  const sess = S.sessions.find(s => String(s.session_key) === String(sk));
+  if (sess) {
+    document.getElementById('session-info').textContent =
+      `${sess.location} · ${sess.session_name} · ${new Date(sess.date_start).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})}`;
+  }
+
+  ids.forEach(id => {
+    const l = document.getElementById(id+'-loading');
+    const c = document.getElementById(id+'-content');
+    if(l) l.style.display='none';
+    if(c) c.style.display='block';
+  });
+
+  renderAll();
+  btn.disabled = false; btn.textContent = '↺ RELOAD';
+}
+
+// ──────────────────────────────────────────────────────────────
+// RENDER
+// ──────────────────────────────────────────────────────────────
+function renderAll() {
+  renderOverview();
+  renderLaps();
+  renderPositions();
+  renderPitStops();
+  renderWeather();
+  renderRaceControl();
+  renderRadio();
+  renderStandings();
+}
+
+// OVERVIEW
+function renderOverview() {
+  const fastestLap = S.laps.reduce((b,l) => l.lap_duration && (!b||l.lap_duration<b.lap_duration)?l:b, null);
+  const lastWx = S.weather[S.weather.length-1];
+
+  document.getElementById('stat-cards').innerHTML = `
+    <div class="stat-card"><div class="stat-lbl">DRIVERS</div><div class="stat-val">${Object.keys(S.drivers).length}</div><div class="stat-sub">LOADED THIS SESSION</div></div>
+    <div class="stat-card"><div class="stat-lbl">FASTEST LAP</div><div class="stat-val" style="font-size:15px;color:var(--accent2)">${fastestLap ? fmtTime(fastestLap.lap_duration) : '—'}</div><div class="stat-sub">${fastestLap ? (S.drivers[fastestLap.driver_number]?.name_acronym||'#'+fastestLap.driver_number) + ' · LAP ' + fastestLap.lap_number : '—'}</div></div>
+    <div class="stat-card"><div class="stat-lbl">PIT STOPS</div><div class="stat-val">${S.pitStops.length}</div><div class="stat-sub">TOTAL THIS SESSION</div></div>
+    <div class="stat-card"><div class="stat-lbl">TRACK TEMP</div><div class="stat-val">${lastWx ? lastWx.track_temperature+'°C' : '—'}</div><div class="stat-sub">AIR: ${lastWx ? lastWx.air_temperature+'°C' : '—'}</div></div>
+  `;
+
+  // Positions
+  const latestByDrv = {};
+  S.positions.forEach(p => {
+    if (!latestByDrv[p.driver_number]||new Date(p.date)>new Date(latestByDrv[p.driver_number].date))
+      latestByDrv[p.driver_number] = p;
+  });
+  const sorted = Object.values(latestByDrv).sort((a,b)=>a.position-b.position);
+  const ovPos = document.getElementById('ov-positions');
+  if (!sorted.length) { ovPos.innerHTML = empty('🏁','NO POSITION DATA'); return; }
+  ovPos.innerHTML = sorted.map(p => {
+    const d = S.drivers[p.driver_number]; const col = driverColor(d);
+    return `<div style="display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid var(--border)">
+      <span class="pos-badge ${['','p1','p2','p3'][p.position]||'pn'}">${p.position}</span>
+      <div class="drv-dot" style="background:${col}"></div>
+      <span class="drv-abbr" style="color:${col}">${d?.name_acronym||'#'+p.driver_number}</span>
+      <span class="drv-full">${d?.full_name||''}</span>
+      <span style="margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text3)">${d?.team_name||''}</span>
+    </div>`;
+  }).join('');
+
+  // Weather
+  const ovWx = document.getElementById('ov-weather');
+  if (!lastWx) { ovWx.innerHTML = empty('🌦','NO WEATHER DATA'); return; }
+  ovWx.innerHTML = `
+    <div class="wx-grid">
+      <div class="wx-item"><div class="wx-icon">🌡️</div><div class="wx-val">${lastWx.air_temperature}°</div><div class="wx-lbl">AIR TEMP</div></div>
+      <div class="wx-item"><div class="wx-icon">🏎️</div><div class="wx-val">${lastWx.track_temperature}°</div><div class="wx-lbl">TRACK TEMP</div></div>
+      <div class="wx-item"><div class="wx-icon">💧</div><div class="wx-val">${lastWx.humidity}%</div><div class="wx-lbl">HUMIDITY</div></div>
+      <div class="wx-item"><div class="wx-icon">🌬️</div><div class="wx-val">${lastWx.wind_speed}</div><div class="wx-lbl">WIND m/s</div></div>
+      <div class="wx-item"><div class="wx-icon">🧭</div><div class="wx-val">${lastWx.wind_direction}°</div><div class="wx-lbl">WIND DIR</div></div>
+      <div class="wx-item"><div class="wx-icon">${lastWx.rainfall?'🌧️':'☀️'}</div><div class="wx-val">${lastWx.rainfall?'YES':'DRY'}</div><div class="wx-lbl">RAINFALL</div></div>
+    </div>
+    <div style="margin-top:9px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text3)">PRESSURE: ${lastWx.pressure} hPa · ${fmtTs(lastWx.date)}</div>`;
+}
+
+// LAPS
+function renderLaps() {
+  const df = document.getElementById('drv-filter');
+  df.innerHTML = '<option value="">ALL DRIVERS</option>';
+  [...new Set(S.laps.map(l=>l.driver_number))].sort((a,b)=>a-b).forEach(n => {
+    const d = S.drivers[n];
+    const o = document.createElement('option');
+    o.value = n; o.textContent = d ? `${d.name_acronym} · ${d.full_name}` : '#'+n;
+    df.appendChild(o);
+  });
+  filterLaps();
+}
+
+function filterLaps() {
+  const drvF = document.getElementById('drv-filter').value;
+  const sortF = document.getElementById('lap-sort').value;
+  let laps = S.laps.filter(l => !drvF || String(l.driver_number)===String(drvF));
+
+  const fastestAll = Math.min(...S.laps.filter(l=>l.lap_duration).map(l=>l.lap_duration));
+  const drvBest = {};
+  S.laps.forEach(l => { if(l.lap_duration&&(!drvBest[l.driver_number]||l.lap_duration<drvBest[l.driver_number])) drvBest[l.driver_number]=l.lap_duration; });
+
+  if (sortF==='time') laps.sort((a,b)=>(a.lap_duration||999)-(b.lap_duration||999));
+  else if (sortF==='driver') laps.sort((a,b)=>String(a.driver_number).localeCompare(String(b.driver_number)));
+  else laps.sort((a,b)=>a.lap_number-b.lap_number);
+
+  document.getElementById('lap-count').textContent = `${laps.length} LAPS`;
+
+  const ft = S.laps.find(l=>l.lap_duration===fastestAll);
+  if (ft) {
+    const fd = S.drivers[ft.driver_number];
+    document.getElementById('fastest-tag').innerHTML = `<span class="tag t-orange">⚡ FASTEST: ${fd?.name_acronym||'#'+ft.driver_number} ${fmtTime(fastestAll)}</span>`;
+  }
+
+  document.getElementById('lap-tbody').innerHTML = laps.map(l => {
+    const d = S.drivers[l.driver_number]; const col = driverColor(d);
+    const isFast = l.lap_duration === fastestAll;
+    const isPB = !isFast && l.lap_duration === drvBest[l.driver_number];
+    const ltCls = isFast?'lt-fast':isPB?'lt-pb':'lt-norm';
+    const comp = l.compound||'?';
+    return `<tr>
+      <td style="font-family:'Orbitron',sans-serif;font-weight:700">${l.lap_number}</td>
+      <td><div class="drv-tag"><div class="drv-dot" style="background:${col}"></div><span class="drv-abbr" style="color:${col}">${d?.name_acronym||'#'+l.driver_number}</span></div></td>
+      <td class="${ltCls}">${l.lap_duration?fmtTime(l.lap_duration):'—'} ${isFast?'⚡':isPB?'●':''}</td>
+      <td style="color:var(--text2)">${l.duration_sector_1?fmtTime(l.duration_sector_1):'—'}</td>
+      <td style="color:var(--text2)">${l.duration_sector_2?fmtTime(l.duration_sector_2):'—'}</td>
+      <td style="color:var(--text2)">${l.duration_sector_3?fmtTime(l.duration_sector_3):'—'}</td>
+      <td><span class="tyre ${comp}">${comp[0]||'?'}</span></td>
+      <td style="color:var(--accent3)">${l.st_speed?l.st_speed+' km/h':'—'}</td>
+      <td>${l.is_pit_out_lap?'<span class="tag t-orange">PIT OUT</span>':'—'}</td>
+    </tr>`;
+  }).join('');
+}
+
+// POSITIONS
+function renderPositions() {
+  const latestByDrv = {};
+  S.positions.forEach(p => {
+    if (!latestByDrv[p.driver_number]||new Date(p.date)>new Date(latestByDrv[p.driver_number].date))
+      latestByDrv[p.driver_number]=p;
+  });
+  const sorted = Object.values(latestByDrv).sort((a,b)=>a.position-b.position);
+  document.getElementById('pos-count').textContent = `${S.positions.length} ENTRIES · ${sorted.length} DRIVERS`;
+  document.getElementById('pos-tbody').innerHTML = sorted.map((p,i) => {
+    const d = S.drivers[p.driver_number]; const col = driverColor(d);
+    const gapPct = Math.max(5, 100 - i*6);
+    const gapViz = i===0?'<span class="tag t-green">LEADER</span>':`<div class="gap-bg"><div class="gap-fill" style="width:${gapPct}%"></div></div>`;
+    return `<tr>
+      <td><span class="pos-badge ${['','p1','p2','p3'][p.position]||'pn'}">${p.position}</span></td>
+      <td><div class="drv-tag"><div class="drv-dot" style="background:${col}"></div><span class="drv-abbr" style="color:${col}">${d?.name_acronym||'#'+p.driver_number}</span><span class="drv-full">${d?.full_name||''}</span></div></td>
+      <td style="color:var(--text3);font-size:10px">${d?.team_name||'—'}</td>
+      <td>${gapViz}</td>
+      <td style="color:var(--text3)">${fmtTs(p.date)}</td>
+    </tr>`;
+  }).join('');
+}
+
+// PIT STOPS
+function renderPitStops() {
+  const pits = [...S.pitStops].sort((a,b)=>(a.lap_number||0)-(b.lap_number||0));
+  document.getElementById('pit-tbody').innerHTML = pits.map(p => {
+    const d = S.drivers[p.driver_number]; const col = driverColor(d);
+    const fast = p.stop_duration && p.stop_duration < 2.5;
+    return `<tr>
+      <td><div class="drv-tag"><div class="drv-dot" style="background:${col}"></div><span class="drv-abbr" style="color:${col}">${d?.name_acronym||'#'+p.driver_number}</span></div></td>
+      <td style="font-family:'Orbitron',sans-serif;font-weight:700">${p.lap_number||'—'}</td>
+      <td class="${fast?'lt-pb':''}">${p.stop_duration?p.stop_duration.toFixed(3)+'s':'—'} ${fast?'⚡':''}</td>
+      <td style="color:var(--text2)">${p.lane_duration?p.lane_duration.toFixed(3)+'s':'—'}</td>
+      <td>${fast?'<span class="tag t-green">FAST</span>':p.stop_duration&&p.stop_duration<3.0?'<span class="tag t-blue">GOOD</span>':'<span class="tag t-grey">—</span>'}</td>
+    </tr>`;
+  }).join('');
+
+  // Ranking
+  const byDrv = {};
+  pits.forEach(p => { if(p.stop_duration&&(!byDrv[p.driver_number]||p.stop_duration<byDrv[p.driver_number].stop_duration)) byDrv[p.driver_number]=p; });
+  const ranked = Object.values(byDrv).sort((a,b)=>a.stop_duration-b.stop_duration);
+  const maxS = ranked[ranked.length-1]?.stop_duration||5;
+  document.getElementById('pit-ranking').innerHTML = ranked.map((p,i) => {
+    const d = S.drivers[p.driver_number]; const col = driverColor(d);
+    const pct = Math.round((p.stop_duration/maxS)*100);
+    return `<div class="champ-row">
+      <div class="champ-hdr">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-family:'Orbitron',sans-serif;font-size:9px;color:var(--text3)">#${i+1}</span>
+          <div class="drv-dot" style="background:${col}"></div>
+          <span class="champ-name">${d?.name_acronym||'#'+p.driver_number}</span>
+        </div>
+        <span class="champ-pts">${p.stop_duration.toFixed(3)}s</span>
+      </div>
+      <div class="bar-bg"><div class="bar-fill" style="width:${pct}%;background:${col}"></div></div>
+    </div>`;
+  }).join('');
+}
+
+// WEATHER
+function renderWeather() {
+  const w = S.weather;
+  if (!w.length) return;
+  const last = w[w.length-1];
+  const avgA = (w.reduce((s,x)=>s+(x.air_temperature||0),0)/w.length).toFixed(1);
+  const maxT = Math.max(...w.filter(x=>x.track_temperature!=null).map(x=>x.track_temperature));
+  const minT = Math.min(...w.filter(x=>x.track_temperature!=null).map(x=>x.track_temperature));
+
+  document.getElementById('wx-stats').innerHTML = `
+    <div class="stat-card"><div class="stat-lbl">AIR TEMP NOW</div><div class="stat-val">${last.air_temperature}°C</div><div class="stat-sub">SESSION AVG: ${avgA}°C</div></div>
+    <div class="stat-card"><div class="stat-lbl">TRACK TEMP NOW</div><div class="stat-val">${last.track_temperature}°C</div><div class="stat-sub">MAX: ${maxT}° · MIN: ${minT}°</div></div>
+    <div class="stat-card"><div class="stat-lbl">HUMIDITY</div><div class="stat-val">${last.humidity}%</div><div class="stat-sub">PRESSURE: ${last.pressure} hPa</div></div>
+    <div class="stat-card"><div class="stat-lbl">CONDITIONS</div><div class="stat-val" style="font-size:14px">${last.rainfall?'🌧️ WET':'☀️ DRY'}</div><div class="stat-sub">WIND: ${last.wind_speed} m/s @ ${last.wind_direction}°</div></div>
+  `;
+
+  document.getElementById('wx-tbody').innerHTML = [...w].reverse().map(wx => `<tr>
+    <td style="color:var(--text3)">${fmtTs(wx.date)}</td>
+    <td>${wx.air_temperature??'—'}</td>
+    <td>${wx.track_temperature??'—'}</td>
+    <td>${wx.humidity??'—'}</td>
+    <td>${wx.pressure??'—'}</td>
+    <td>${wx.wind_speed??'—'}</td>
+    <td>${wx.wind_direction??'—'}</td>
+    <td>${wx.rainfall?'<span class="tag t-blue">YES</span>':'<span class="tag t-grey">NO</span>'}</td>
+  </tr>`).join('');
+}
+
+// RACE CONTROL
+function renderRaceControl() {
+  const msgs = [...S.raceControl].reverse();
+  document.getElementById('rc-count').textContent = `${msgs.length} MESSAGES`;
+  const feed = document.getElementById('rc-feed');
+  if (!msgs.length) { feed.innerHTML = empty('🚩','NO RACE CONTROL MESSAGES'); return; }
+  feed.innerHTML = msgs.map(m => {
+    const f = m.flag||'';
+    const ico = f==='GREEN'?'🟢':f==='YELLOW'?'🟡':f==='RED'?'🔴':f==='SC'?'🚗':f==='VSC'?'🚙':f==='CLEAR'?'✅':'📢';
+    return `<div class="rc-item rc${f}">
+      <span style="font-size:15px;min-width:20px">${ico}</span>
+      <div>
+        <div class="rc-msg">${m.message||'—'}</div>
+        <div class="rc-ts">${fmtTs(m.date)}${m.lap_number?' · LAP '+m.lap_number:''}${m.category?' · '+m.category:''}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// RADIO
+function renderRadio() {
+  const df = document.getElementById('radio-drv-filter');
+  df.innerHTML = '<option value="">ALL DRIVERS</option>';
+  [...new Set(S.radio.map(r=>r.driver_number))].forEach(n => {
+    const d = S.drivers[n]; const o = document.createElement('option');
+    o.value=n; o.textContent=d?`${d.name_acronym} · ${d.full_name}`:'#'+n;
+    df.appendChild(o);
+  });
+  filterRadio();
+}
+
+function filterRadio() {
+  const f = document.getElementById('radio-drv-filter').value;
+  const msgs = [...S.radio].filter(r=>!f||String(r.driver_number)===String(f)).reverse();
+  document.getElementById('radio-count').textContent = `${msgs.length} MESSAGES`;
+  const feed = document.getElementById('radio-feed');
+  if (!msgs.length) { feed.innerHTML = empty('📻','NO RADIO MESSAGES'); return; }
+  feed.innerHTML = msgs.map(r => {
+    const d = S.drivers[r.driver_number]; const col = driverColor(d);
+    return `<div class="radio-item">
+      <div class="radio-dot" style="background:${col}"></div>
+      <div style="flex:1"><div class="radio-abbr" style="color:${col}">${d?.name_acronym||'#'+r.driver_number}</div><div class="radio-ts">${fmtTs(r.date)}</div></div>
+      ${r.recording_url
+        ? `<button class="play-btn" onclick="playRadio('${r.recording_url}',this)" title="Play audio">▶</button>`
+        : '<span style="font-size:9px;color:var(--text3)">NO AUDIO</span>'}
+    </div>`;
+  }).join('');
+}
+
+function playRadio(url, btn) {
+  const a = new Audio(url);
+  btn.textContent='⏸';
+  a.onended = () => { btn.textContent='▶'; };
+  a.play().catch(() => { window.open(url,'_blank'); btn.textContent='▶'; });
+}
+
+// STANDINGS
+function renderStandings() {
+  const st = S.standings;
+  if (!st.length) {
+    document.getElementById('drv-standings').innerHTML = empty('🏆','NO STANDINGS DATA');
+    document.getElementById('con-standings').innerHTML = empty('🏆','NO STANDINGS DATA');
+    return;
+  }
+  const drvS = st.filter(s=>s.driver_number!=null).sort((a,b)=>(a.driver_position||99)-(b.driver_position||99));
+  const maxD = drvS[0]?.driver_points||1;
+  document.getElementById('drv-standings').innerHTML = drvS.map((s,i) => {
+    const d = S.drivers[s.driver_number]||{}; const col = driverColor(d);
+    const pts = s.driver_points||0; const pct = Math.round((pts/maxD)*100);
+    return `<div class="champ-row">
+      <div class="champ-hdr">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-family:'Orbitron',sans-serif;font-size:9px;color:var(--text3)">${s.driver_position||i+1}</span>
+          <div class="drv-dot" style="background:${col}"></div>
+          <span class="champ-name">${d.name_acronym||'#'+s.driver_number}</span>
+          <span style="font-size:9px;color:var(--text3)">${d.team_name||''}</span>
+        </div>
+        <span class="champ-pts">${pts} PTS</span>
+      </div>
+      <div class="bar-bg"><div class="bar-fill" style="width:${pct}%;background:${col}"></div></div>
+    </div>`;
+  }).join('');
+
+  const teamMap = {};
+  st.forEach(s => {
+    if (!s.team_name) return;
+    const pts = s.constructor_points||0;
+    if (!teamMap[s.team_name]||pts>teamMap[s.team_name].pts)
+      teamMap[s.team_name] = {name:s.team_name, pts, pos:s.constructor_position,
+        color: s.driver_number?driverColor(S.drivers[s.driver_number]):'#666'};
+  });
+  const cons = Object.values(teamMap).sort((a,b)=>(a.pos||99)-(b.pos||99));
+  const maxC = cons[0]?.pts||1;
+  document.getElementById('con-standings').innerHTML = cons.map((t,i) => {
+    const pct = Math.round((t.pts/maxC)*100);
+    return `<div class="champ-row">
+      <div class="champ-hdr">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-family:'Orbitron',sans-serif;font-size:9px;color:var(--text3)">${t.pos||i+1}</span>
+          <div class="drv-dot" style="background:${t.color}"></div>
+          <span class="champ-name">${t.name}</span>
+        </div>
+        <span class="champ-pts">${t.pts} PTS</span>
+      </div>
+      <div class="bar-bg"><div class="bar-fill" style="width:${pct}%;background:${t.color}"></div></div>
+    </div>`;
+  }).join('');
+}
+
+// ──────────────────────────────────────────────────────────────
+// TABS
+// ──────────────────────────────────────────────────────────────
+function switchTab(name, el) {
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('panel-'+name).classList.add('active');
+}
+
+// ──────────────────────────────────────────────────────────────
+// UTILS
+// ──────────────────────────────────────────────────────────────
+function fmtTime(s) {
+  if (s==null) return '—';
+  const m = Math.floor(s/60); const sec = (s%60).toFixed(3).padStart(6,'0');
+  return m>0?`${m}:${sec}`:`${Number(s).toFixed(3)}s`;
+}
+function fmtTs(ts) {
+  if (!ts) return '—';
+  try { return new Date(ts).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}); }
+  catch { return ts; }
+}
+function empty(ico, txt) {
+  return `<div class="empty"><div class="empty-ico">${ico}</div><div class="empty-txt">${txt}</div></div>`;
+}
+
+// ──────────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>
