@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
 import { SessionProvider, useSession } from './context/SessionContext';
 import Dashboard from './pages/Dashboard';
@@ -12,16 +13,16 @@ import ChampionshipStandings from './pages/ChampionshipStandings';
 import PredictionModel from './pages/PredictionModel';
 
 const navItems = [
-  { to: '/',               label: '🏠 OVERVIEW'      },
-  { to: '/lap-times',      label: '⏱ LAP TIMING'     },
-  { to: '/race-results',   label: '🏁 POSITIONS'      },
-  { to: '/pit-stops',      label: '🔧 PIT STOPS'      },
-  { to: '/weather',        label: '🌦 WEATHER'        },
-  { to: '/race-control',   label: '🚩 RACE CONTROL'   },
-  { to: '/team-radio',     label: '📻 TEAM RADIO'     },
-  { to: '/standings',      label: '🏆 STANDINGS'      },
-  { to: '/tyre-strategy',  label: '🏎 TYRE STRATEGY'  },
-  { to: '/prediction',     label: '🤖 PREDICTION'     },
+  { to: '/',              label: '🏠 OVERVIEW'     },
+  { to: '/lap-times',     label: '⏱ LAP TIMING'    },
+  { to: '/race-results',  label: '🏁 POSITIONS'     },
+  { to: '/pit-stops',     label: '🔧 PIT STOPS'     },
+  { to: '/weather',       label: '🌦 WEATHER'       },
+  { to: '/race-control',  label: '🚩 RACE CONTROL'  },
+  { to: '/team-radio',    label: '📻 TEAM RADIO'    },
+  { to: '/standings',     label: '🏆 STANDINGS'     },
+  { to: '/tyre-strategy', label: '🏎 TYRE STRATEGY' },
+  { to: '/prediction',    label: '🤖 PREDICTION'    },
 ];
 
 const sel = {
@@ -36,85 +37,201 @@ const slbl = {
   letterSpacing: '0.15em', color: 'var(--text3)', textTransform: 'uppercase',
 };
 
-function SessionBar() {
-  const { year, meetings, sessions, meetingKey, sessionKey, loading, loaded,
-    sessionInfo, onYearChange, onMeetingChange, onSessionChange, loadAll } = useSession();
-
-  const canLoad = !!sessionKey;
-
-  function fmtSessionInfo() {
-    if (!sessionInfo) return '';
-    const d = new Date(sessionInfo.date_start).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-    return `${sessionInfo.location} · ${sessionInfo.session_name} · ${d}`;
-  }
+function BookmarkDrawer({ onClose }) {
+  const { bookmarks, loadBookmark, removeBookmark } = useSession();
 
   return (
     <div style={{
-      background: 'var(--surface2)', borderBottom: '1px solid var(--border)',
-      padding: '10px 24px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+      position: 'fixed', top: 0, right: 0, bottom: 0, width: 320,
+      background: 'var(--surface)', borderLeft: '1px solid var(--border)',
+      zIndex: 200, display: 'flex', flexDirection: 'column',
+      animation: 'fadeIn 0.2s ease',
     }}>
-      <span style={slbl}>SEASON</span>
-      <select style={sel} value={year} onChange={e => onYearChange(e.target.value)}>
-        <option value="2026">2026</option>
-        <option value="2025">2025</option>
-        <option value="2024">2024</option>
-        <option value="2023">2023</option>
-      </select>
+      <div style={{
+        padding: '14px 16px', borderBottom: '1px solid var(--border)',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        background: 'var(--surface2)',
+      }}>
+        <div style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 9, fontWeight: 700, letterSpacing: '0.15em', color: 'var(--text2)' }}>
+          ⭐ BOOKMARKS
+        </div>
+        <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: 16 }}>✕</button>
+      </div>
 
-      <span style={slbl}>RACE WEEKEND</span>
-      <select style={sel} value={meetingKey} onChange={e => onMeetingChange(e.target.value)}>
-        <option value="">— Select weekend —</option>
-        {meetings.map(m => (
-          <option key={m.meeting_key} value={m.meeting_key}>
-            {m.country_name} · {m.meeting_name}
-          </option>
+      <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {!bookmarks.length && (
+          <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+            <div style={{ fontSize: 28, opacity: 0.2, marginBottom: 8 }}>⭐</div>
+            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: 'var(--text3)', letterSpacing: '0.1em' }}>
+              NO BOOKMARKS YET
+            </div>
+          </div>
+        )}
+        {bookmarks.map(bm => (
+          <div key={bm.session_key} style={{
+            background: 'var(--surface2)', border: '1px solid var(--border)',
+            borderRadius: 3, padding: '10px 12px',
+            display: 'flex', alignItems: 'center', gap: 10,
+          }}>
+            <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => { loadBookmark(bm); onClose(); }}>
+              <div style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 9, fontWeight: 700, color: 'var(--text)', marginBottom: 3 }}>
+                {bm.country_name} · {bm.session_name}
+              </div>
+              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: 'var(--text3)' }}>
+                {bm.meeting_name} · {bm.year}
+              </div>
+            </div>
+            <button
+              onClick={() => removeBookmark(bm.session_key)}
+              title="Remove bookmark"
+              style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: 14, padding: '2px 4px' }}
+            >✕</button>
+          </div>
         ))}
-      </select>
-
-      <span style={slbl}>SESSION</span>
-      <select style={sel} value={sessionKey} onChange={e => onSessionChange(e.target.value)} disabled={!meetingKey}>
-        <option value="">— Select session —</option>
-        {sessions.map(s => (
-          <option key={s.session_key} value={s.session_key}>
-            {s.session_name} · {s.session_type}
-          </option>
-        ))}
-      </select>
-
-      <button
-        onClick={() => loadAll(sessionKey)}
-        disabled={!canLoad || loading}
-        style={{
-          padding: '5px 16px',
-          background: canLoad && !loading ? 'var(--accent)' : 'var(--surface3)',
-          color: canLoad && !loading ? '#fff' : 'var(--text3)',
-          border: 'none', borderRadius: 3,
-          fontFamily: "'Orbitron', sans-serif", fontSize: 9, fontWeight: 700,
-          letterSpacing: '0.12em', cursor: canLoad && !loading ? 'pointer' : 'not-allowed',
-        }}
-      >
-        {loading ? '⟳ LOADING...' : loaded ? '↺ RELOAD' : '▶ LOAD DATA'}
-      </button>
-      {loading && (
-        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: 'var(--text3)', letterSpacing: '0.1em' }}>
-          FETCHING LATEST RACE DATA...
-        </span>
-      )}
-
-      {sessionInfo && (
-        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: 'var(--text3)', marginLeft: 4 }}>
-          {fmtSessionInfo()}
-        </span>
-      )}
+      </div>
     </div>
+  );
+}
+
+function SessionBar() {
+  const {
+    year, meetings, sessions, meetingKey, sessionKey, loading, loaded, sessionInfo,
+    bookmarks, isBookmarked, addBookmark, removeBookmark,
+    onYearChange, onMeetingChange, onSessionChange, loadAll,
+  } = useSession();
+
+  const [showBookmarks, setShowBookmarks] = useState(false);
+  const canLoad = !!sessionKey;
+  const bookmarked = isBookmarked(sessionKey);
+
+  function fmtSessionInfo() {
+    if (!sessionInfo) return '';
+    const d = sessionInfo.date_start
+      ? new Date(sessionInfo.date_start).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+      : '';
+    return [sessionInfo.location, sessionInfo.session_name, d].filter(Boolean).join(' · ');
+  }
+
+  function handleBookmarkToggle() {
+    if (!sessionKey || !loaded) return;
+    if (bookmarked) {
+      removeBookmark(sessionKey);
+    } else {
+      const meeting = meetings.find(m => String(m.meeting_key) === String(meetingKey));
+      const session = sessions.find(s => String(s.session_key) === String(sessionKey));
+      addBookmark({
+        session_key: sessionKey,
+        session_name: session?.session_name || sessionInfo?.session_name || '',
+        session_type: session?.session_type || sessionInfo?.session_type || '',
+        meeting_name: meeting?.meeting_name || '',
+        country_name: meeting?.country_name || sessionInfo?.location || '',
+        year,
+      });
+    }
+  }
+
+  return (
+    <>
+      <div style={{
+        background: 'var(--surface2)', borderBottom: '1px solid var(--border)',
+        padding: '10px 24px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+      }}>
+        <span style={slbl}>SEASON</span>
+        <select style={sel} value={year} onChange={e => onYearChange(e.target.value)}>
+          <option value="2026">2026</option>
+          <option value="2025">2025</option>
+          <option value="2024">2024</option>
+          <option value="2023">2023</option>
+        </select>
+
+        <span style={slbl}>RACE WEEKEND</span>
+        <select style={sel} value={meetingKey} onChange={e => onMeetingChange(e.target.value)}>
+          <option value="">— Select weekend —</option>
+          {meetings.map(m => (
+            <option key={m.meeting_key} value={m.meeting_key}>
+              {m.country_name} · {m.meeting_name}
+            </option>
+          ))}
+        </select>
+
+        <span style={slbl}>SESSION</span>
+        <select style={sel} value={sessionKey} onChange={e => onSessionChange(e.target.value)} disabled={!meetingKey}>
+          <option value="">— Select session —</option>
+          {sessions.map(s => (
+            <option key={s.session_key} value={s.session_key}>
+              {s.session_name} · {s.session_type}
+            </option>
+          ))}
+        </select>
+
+        {/* Reload button */}
+        <button
+          onClick={() => loadAll(sessionKey)}
+          disabled={!canLoad || loading}
+          style={{
+            padding: '5px 16px',
+            background: canLoad && !loading ? 'var(--accent)' : 'var(--surface3)',
+            color: canLoad && !loading ? '#fff' : 'var(--text3)',
+            border: 'none', borderRadius: 3,
+            fontFamily: "'Orbitron', sans-serif", fontSize: 9, fontWeight: 700,
+            letterSpacing: '0.12em', cursor: canLoad && !loading ? 'pointer' : 'not-allowed',
+          }}
+        >
+          {loading ? '⟳ LOADING...' : loaded ? '↺ RELOAD' : '▶ LOAD DATA'}
+        </button>
+
+        {/* Bookmark toggle */}
+        {loaded && (
+          <button
+            onClick={handleBookmarkToggle}
+            title={bookmarked ? 'Remove bookmark' : 'Bookmark this session'}
+            style={{
+              background: bookmarked ? 'rgba(255,215,0,0.15)' : 'var(--surface3)',
+              border: `1px solid ${bookmarked ? 'var(--gold)' : 'var(--border2)'}`,
+              color: bookmarked ? 'var(--gold)' : 'var(--text3)',
+              borderRadius: 3, padding: '5px 10px', cursor: 'pointer', fontSize: 13,
+            }}
+          >
+            {bookmarked ? '⭐' : '☆'}
+          </button>
+        )}
+
+        {/* Bookmarks drawer toggle */}
+        <button
+          onClick={() => setShowBookmarks(v => !v)}
+          style={{
+            background: showBookmarks ? 'rgba(255,215,0,0.1)' : 'var(--surface3)',
+            border: `1px solid ${showBookmarks ? 'var(--gold)' : 'var(--border2)'}`,
+            color: showBookmarks ? 'var(--gold)' : 'var(--text3)',
+            borderRadius: 3, padding: '5px 10px', cursor: 'pointer',
+            fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, letterSpacing: '0.1em',
+            display: 'flex', alignItems: 'center', gap: 5,
+          }}
+        >
+          ⭐ {bookmarks.length > 0 ? bookmarks.length : 'SAVED'}
+        </button>
+
+        {sessionInfo && !loading && (
+          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: 'var(--text3)', marginLeft: 4 }}>
+            {fmtSessionInfo()}
+          </span>
+        )}
+
+        {loading && (
+          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: 'var(--text3)', letterSpacing: '0.1em' }}>
+            {loaded ? 'REFRESHING...' : 'FETCHING LATEST RACE DATA...'}
+          </span>
+        )}
+      </div>
+
+      {showBookmarks && <BookmarkDrawer onClose={() => setShowBookmarks(false)} />}
+    </>
   );
 }
 
 function Layout() {
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--text)', position: 'relative', zIndex: 1 }}>
-
-      {/* HEADER */}
       <header style={{
         position: 'sticky', top: 0, zIndex: 100,
         background: 'rgba(8,10,14,0.97)', backdropFilter: 'blur(20px)',
@@ -150,7 +267,6 @@ function Layout() {
         </div>
       </header>
 
-      {/* NAV */}
       <nav style={{
         background: 'var(--surface)', borderBottom: '1px solid var(--border)',
         padding: '0 24px', display: 'flex',
@@ -173,10 +289,8 @@ function Layout() {
         ))}
       </nav>
 
-      {/* SESSION BAR */}
       <SessionBar />
 
-      {/* MAIN */}
       <main style={{ padding: '20px 24px', maxWidth: 1600, margin: '0 auto', position: 'relative', zIndex: 1 }}>
         <Routes>
           <Route path="/"              element={<Dashboard />} />

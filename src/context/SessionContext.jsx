@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import supabase from '../lib/supabase';
 
 const BASE = 'https://api.openf1.org/v1';
 
@@ -25,6 +26,30 @@ async function fetchSessionData(sk) {
   return { drivers, laps, positions, pitStops, weather, raceControl, radio, standings, stints };
 }
 
+// Returns cached data if available, otherwise fetches from OpenF1 and caches it
+async function fetchWithCache(sk) {
+  // Check cache
+  const { data: cached } = await supabase
+    .from('session_cache')
+    .select('data')
+    .eq('session_key', String(sk))
+    .single();
+
+  if (cached) return cached.data;
+
+  // Not cached — fetch from OpenF1
+  const result = await fetchSessionData(sk);
+
+  // Store in cache (race data never changes, so no expiry needed)
+  await supabase.from('session_cache').upsert({
+    session_key: String(sk),
+    data: result,
+    cached_at: new Date().toISOString(),
+  });
+
+  return result;
+}
+
 const emptyData = {
   drivers: {}, laps: [], positions: [], pitStops: [],
   weather: [], raceControl: [], radio: [], standings: [], stints: [],
@@ -42,8 +67,8 @@ export function SessionProvider({ children }) {
   const [loaded, setLoaded] = useState(false);
   const [data, setData] = useState(emptyData);
   const [sessionInfo, setSessionInfo] = useState(null);
+  const [bookmarks, setBookmarks] = useState([]);
 
-  // Ref so callbacks always see latest sessions without stale closures
   const sessionsRef = useRef([]);
 
   function updateSessions(sess) {
@@ -51,8 +76,41 @@ export function SessionProvider({ children }) {
     sessionsRef.current = sess;
   }
 
-  // On startup: try 2026, fall back to 2025 then 2024 until meetings are found
+  // Load bookmarks from Supabase
+  async function loadBookmarks() {
+    const { data: bm } = await supabase
+      .from('bookmarks')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (bm) setBookmarks(bm);
+  }
+
+  async function addBookmark(info) {
+    const row = {
+      session_key: String(info.session_key),
+      session_name: info.session_name,
+      session_type: info.session_type,
+      meeting_name: info.meeting_name,
+      country_name: info.country_name,
+      year: String(info.year),
+    };
+    const { data: bm } = await supabase.from('bookmarks').upsert(row).select();
+    if (bm) setBookmarks(prev => [bm[0], ...prev.filter(b => b.session_key !== row.session_key)]);
+  }
+
+  async function removeBookmark(sk) {
+    await supabase.from('bookmarks').delete().eq('session_key', String(sk));
+    setBookmarks(prev => prev.filter(b => b.session_key !== String(sk)));
+  }
+
+  function isBookmarked(sk) {
+    return bookmarks.some(b => b.session_key === String(sk));
+  }
+
+  // Auto-load most recent past race on startup, fall back through years
   useEffect(() => {
+    loadBookmarks();
+
     async function autoLoad() {
       const now = new Date();
       const yearsToTry = ['2026', '2025', '2024'];
@@ -69,24 +127,21 @@ export function SessionProvider({ children }) {
       setMeetings(sorted);
       if (!sorted.length) return;
 
-      // Pick most recent past meeting
       const past = sorted.filter(m => new Date(m.date_start) <= now);
       const latest = past.length ? past[past.length - 1] : sorted[sorted.length - 1];
       setMeetingKey(String(latest.meeting_key));
 
-      // Fetch sessions and update ref immediately (don't wait for re-render)
       const sess = await apiFetch('/sessions', { meeting_key: latest.meeting_key });
       updateSessions(sess);
       if (!sess.length) return;
 
-      // Prefer Race session, fall back to last session
       const raceSession = sess.find(s => s.session_type === 'Race') || sess[sess.length - 1];
       const sk = String(raceSession.session_key);
       setSessionKey(sk);
       setSessionInfo(raceSession);
 
       setLoading(true);
-      const result = await fetchSessionData(sk);
+      const result = await fetchWithCache(sk);
       setData(result);
       setLoading(false);
       setLoaded(true);
@@ -118,7 +173,6 @@ export function SessionProvider({ children }) {
     updateSessions(sess);
   }, []);
 
-  // Auto-loads data as soon as user picks a session — no button needed
   const onSessionChange = useCallback(async (sk) => {
     if (!sk) { setSessionKey(''); return; }
     setSessionKey(sk);
@@ -126,7 +180,7 @@ export function SessionProvider({ children }) {
     setSessionInfo(sess || null);
     setLoading(true);
     setLoaded(false);
-    const result = await fetchSessionData(sk);
+    const result = await fetchWithCache(sk);
     setData(result);
     setLoading(false);
     setLoaded(true);
@@ -138,7 +192,39 @@ export function SessionProvider({ children }) {
     setSessionInfo(sess || null);
     setLoading(true);
     setLoaded(false);
+    // Force fresh fetch on manual reload, bypass cache
     const result = await fetchSessionData(sk);
+    await supabase.from('session_cache').upsert({
+      session_key: String(sk),
+      data: result,
+      cached_at: new Date().toISOString(),
+    });
+    setData(result);
+    setLoading(false);
+    setLoaded(true);
+  }, []);
+
+  // Jump to a bookmarked session
+  const loadBookmark = useCallback(async (bm) => {
+    setYear(bm.year);
+    setLoaded(false);
+    setData(emptyData);
+
+    const mtgs = await apiFetch('/meetings', { year: bm.year });
+    setMeetings(mtgs.sort((a, b) => new Date(a.date_start) - new Date(b.date_start)));
+
+    const sess = await apiFetch('/sessions', { session_key: bm.session_key });
+    if (sess.length) {
+      setMeetingKey(String(sess[0].meeting_key));
+      const allSess = await apiFetch('/sessions', { meeting_key: sess[0].meeting_key });
+      updateSessions(allSess);
+    }
+
+    const sk = String(bm.session_key);
+    setSessionKey(sk);
+    setSessionInfo({ session_name: bm.session_name, session_type: bm.session_type });
+    setLoading(true);
+    const result = await fetchWithCache(sk);
     setData(result);
     setLoading(false);
     setLoaded(true);
@@ -148,6 +234,7 @@ export function SessionProvider({ children }) {
     <SessionContext.Provider value={{
       year, meetings, sessions, meetingKey, sessionKey,
       loading, loaded, data, sessionInfo,
+      bookmarks, isBookmarked, addBookmark, removeBookmark, loadBookmark,
       onYearChange, onMeetingChange, onSessionChange, loadAll,
     }}>
       {children}
