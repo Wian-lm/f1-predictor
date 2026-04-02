@@ -4,15 +4,23 @@ import Dashboard from './pages/Dashboard';
 import LapTimes from './pages/LapTimes';
 import TyreStrategy from './pages/TyreStrategy';
 import RaceResults from './pages/RaceResults';
+import PitStops from './pages/PitStops';
+import Weather from './pages/Weather';
+import RaceControl from './pages/RaceControl';
+import TeamRadio from './pages/TeamRadio';
 import ChampionshipStandings from './pages/ChampionshipStandings';
 import PredictionModel from './pages/PredictionModel';
 
 const navItems = [
   { to: '/',               label: '🏠 OVERVIEW'      },
   { to: '/lap-times',      label: '⏱ LAP TIMING'     },
-  { to: '/tyre-strategy',  label: '🏎 TYRE STRATEGY'  },
-  { to: '/race-results',   label: '🏁 RACE RESULTS'   },
+  { to: '/race-results',   label: '🏁 POSITIONS'      },
+  { to: '/pit-stops',      label: '🔧 PIT STOPS'      },
+  { to: '/weather',        label: '🌦 WEATHER'        },
+  { to: '/race-control',   label: '🚩 RACE CONTROL'   },
+  { to: '/team-radio',     label: '📻 TEAM RADIO'     },
   { to: '/standings',      label: '🏆 STANDINGS'      },
+  { to: '/tyre-strategy',  label: '🏎 TYRE STRATEGY'  },
   { to: '/prediction',     label: '🤖 PREDICTION'     },
 ];
 
@@ -167,9 +175,13 @@ function Layout() {
         <Routes>
           <Route path="/"              element={<Dashboard />} />
           <Route path="/lap-times"     element={<LapTimes />} />
-          <Route path="/tyre-strategy" element={<TyreStrategy />} />
           <Route path="/race-results"  element={<RaceResults />} />
+          <Route path="/pit-stops"     element={<PitStops />} />
+          <Route path="/weather"       element={<Weather />} />
+          <Route path="/race-control"  element={<RaceControl />} />
+          <Route path="/team-radio"    element={<TeamRadio />} />
           <Route path="/standings"     element={<ChampionshipStandings />} />
+          <Route path="/tyre-strategy" element={<TyreStrategy />} />
           <Route path="/prediction"    element={<PredictionModel />} />
         </Routes>
       </main>
