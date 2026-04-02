@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/wianl/AppData/Local/claude-cli-nodejs//**)",
+      "Read(//c/Users/wianl/AppData/Roaming//**)",
+      "Read(//c/Users/wianl/AppData/Local/Programs//**)",
+      "Read(//c/Users/wianl/**)",
+      "Bash(cmd.exe /c \"where npm\")",
+      "Bash(cmd.exe /c \"where node\")",
+      "Bash(cmd.exe /c \"npm --version\")",
+      "Bash(cmd.exe /c \"node --version\")",
+      "Read(//c//**)",
+      "Bash(/c/Users/wianl/AppData/Local/Microsoft/WindowsApps/node.exe --version)",
+      "Bash(winget --version)",
+      "Bash(choco --version)",
+      "Bash(scoop --version)",
+      "Bash(winget install:*)",
+      "Bash(export PATH=\"/c/Program Files/nodejs:$PATH\")",
+      "Bash(npm --version)",
+      "Bash(printf \"y\\\\n\")",
+      "Bash(npm create:*)",
+      "Bash(npx create-vite@latest . --template react)",
+      "Bash(npx create-vite@latest . --template react --force)",
+      "Bash(npx --yes create-vite@latest . --template react)",
+      "Bash(npx create-vite@9 --help)",
+      "Bash(npx create-vite@9 /c/Users/wianl/vite-test --template react --no-interactive)",
+      "Bash(cp -r /c/Users/wianl/f1-predictor/C/Users/wianl/vite-test/. /c/Users/wianl/f1-predictor/)",
+      "Bash(rm -rf \"/c/Users/wianl/f1-predictor/C\")",
+      "Bash(npm install:*)",
+      "Bash(timeout 20 npm run dev -- --port 5173)"
+    ]
+  }
+}

@@ -327,6 +327,20 @@
   .gap-bg { display:inline-block; width:70px; height:4px; background:var(--surface3); border-radius:2px; vertical-align:middle; overflow:hidden; }
   .gap-fill { height:100%; background:var(--accent3); border-radius:2px; }
 
+  /* STINT BAR */
+  .stint-row { display:grid; grid-template-columns:180px 1fr 80px; align-items:center; gap:12px; padding:8px 0; border-bottom:1px solid rgba(30,45,61,.5); }
+  .stint-row:last-child { border-bottom:none; }
+  .stint-bar { height:26px; border-radius:3px; overflow:hidden; display:flex; margin-bottom:4px; }
+  .stint-seg {
+    height:100%; display:flex; align-items:center; justify-content:center;
+    font-family:'Orbitron',sans-serif; font-size:8px; font-weight:700;
+    border-right:2px solid rgba(0,0,0,0.25); cursor:default;
+    transition:filter .15s;
+  }
+  .stint-seg:last-child { border-right:none; }
+  .stint-seg:hover { filter:brightness(1.15); }
+  .stint-detail { display:flex; align-items:center; gap:4px; flex-wrap:wrap; }
+
   @media(max-width:900px) {
     .g2,.g3,.g4 { grid-template-columns:1fr; }
     main { padding:12px; }
@@ -353,6 +367,7 @@
   <div class="tab" onclick="switchTab('racecontrol',this)">🚩 RACE CONTROL</div>
   <div class="tab" onclick="switchTab('radio',this)">📻 TEAM RADIO</div>
   <div class="tab" onclick="switchTab('championship',this)">🏆 STANDINGS</div>
+  <div class="tab" onclick="switchTab('strategy',this)">🏎 TYRE STRATEGY</div>
 </nav>
 
 <div class="session-bar">
@@ -534,6 +549,30 @@
   </div>
 </div>
 
+<!-- TYRE STRATEGY -->
+<div id="panel-strategy" class="panel">
+  <div id="st-loading" class="loading"><div class="spinner"></div><div class="loading-txt">LOADING STRATEGY DATA...</div></div>
+  <div id="st-content" style="display:none">
+    <div class="g2 mb">
+      <div class="card">
+        <div class="card-hdr"><div class="card-title">📋 RECOMMENDED STRATEGY</div></div>
+        <div class="card-body" id="rec-strategy"></div>
+      </div>
+      <div class="card">
+        <div class="card-hdr"><div class="card-title">📊 STRATEGY BREAKDOWN</div></div>
+        <div class="card-body" id="strategy-summary"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-hdr">
+        <div class="card-title">🏎 DRIVER STRATEGIES</div>
+        <div id="strategy-legend" style="display:flex;gap:8px;align-items:center"></div>
+      </div>
+      <div class="card-body" id="driver-strategies"></div>
+    </div>
+  </div>
+</div>
+
 </main>
 
 <script>
@@ -544,7 +583,8 @@ const S = {
   year:'2024', meetingKey:null, sessionKey:null,
   meetings:[], sessions:[], drivers:{},
   laps:[], positions:[], pitStops:[],
-  weather:[], raceControl:[], radio:[], standings:[]
+  weather:[], raceControl:[], radio:[], standings:[],
+  stints:[]
 };
 
 const TEAM_COLORS = {
@@ -635,7 +675,7 @@ async function loadAll() {
   btn.disabled = true; btn.textContent = '⟳ LOADING...';
 
   // show spinners everywhere
-  const ids = ['ov','tm','ps','pit','wx','rc','rd','ch'];
+  const ids = ['ov','tm','ps','pit','wx','rc','rd','ch','st'];
   ids.forEach(id => {
     const l = document.getElementById(id+'-loading');
     const c = document.getElementById(id+'-content');
@@ -645,7 +685,7 @@ async function loadAll() {
 
   const sk = S.sessionKey;
 
-  const [drivers, laps, positions, pitStops, weather, raceControl, radio, standings] = await Promise.all([
+  const [drivers, laps, positions, pitStops, weather, raceControl, radio, standings, stints] = await Promise.all([
     apiFetch('/drivers', {session_key: sk}),
     apiFetch('/laps', {session_key: sk}),
     apiFetch('/position', {session_key: sk}),
@@ -654,6 +694,7 @@ async function loadAll() {
     apiFetch('/race_control', {session_key: sk}),
     apiFetch('/team_radio', {session_key: sk}),
     apiFetch('/standings', {session_key: sk}),
+    apiFetch('/stints', {session_key: sk}),
   ]);
 
   S.drivers = {};
@@ -665,6 +706,7 @@ async function loadAll() {
   S.raceControl = raceControl;
   S.radio = radio;
   S.standings = standings;
+  S.stints = stints;
 
   // session info
   const sess = S.sessions.find(s => String(s.session_key) === String(sk));
@@ -696,6 +738,7 @@ function renderAll() {
   renderRaceControl();
   renderRadio();
   renderStandings();
+  renderStrategy();
 }
 
 // OVERVIEW
@@ -992,6 +1035,165 @@ function renderStandings() {
         <span class="champ-pts">${t.pts} PTS</span>
       </div>
       <div class="bar-bg"><div class="bar-fill" style="width:${pct}%;background:${t.color}"></div></div>
+    </div>`;
+  }).join('');
+}
+
+// TYRE STRATEGY
+const COMPOUND_COLORS = {
+  SOFT:'#00bfff', MEDIUM:'#ffd700', HARD:'#888888',
+  INTERMEDIATE:'#39b54a', WET:'#0067ff'
+};
+const COMPOUND_TEXT = {
+  SOFT:'#000', MEDIUM:'#000', HARD:'#fff',
+  INTERMEDIATE:'#000', WET:'#fff'
+};
+
+function renderStrategy() {
+  const stints = S.stints;
+  const recEl = document.getElementById('rec-strategy');
+  const sumEl = document.getElementById('strategy-summary');
+  const drvEl = document.getElementById('driver-strategies');
+
+  if (!stints.length) {
+    recEl.innerHTML = empty('🏎','NO STINT DATA FOR THIS SESSION');
+    sumEl.innerHTML = ''; drvEl.innerHTML = '';
+    return;
+  }
+
+  const totalLaps = Math.max(...stints.map(s => s.lap_end || 0));
+  const hasWet = S.weather.some(w => w.rainfall);
+
+  // Get final positions
+  const latestByDrv = {};
+  S.positions.forEach(p => {
+    if (!latestByDrv[p.driver_number] || new Date(p.date) > new Date(latestByDrv[p.driver_number].date))
+      latestByDrv[p.driver_number] = p;
+  });
+
+  // Group & sort stints per driver
+  const driverStints = {};
+  stints.forEach(s => {
+    const dn = String(s.driver_number);
+    if (!driverStints[dn]) driverStints[dn] = [];
+    driverStints[dn].push(s);
+  });
+  Object.values(driverStints).forEach(arr => arr.sort((a,b) => (a.lap_start||0)-(b.lap_start||0)));
+
+  // Strategy key = compound sequence
+  const stratKey = arr => arr.map(s => s.compound || '?').join(' → ');
+
+  // Count frequency and weight by finishing position
+  const stratCount = {}, stratScore = {};
+  Object.entries(driverStints).forEach(([dn, arr]) => {
+    const key = stratKey(arr);
+    stratCount[key] = (stratCount[key]||0) + 1;
+    const pos = latestByDrv[dn]?.position || 20;
+    stratScore[key] = (stratScore[key]||0) + Math.max(1, 21 - pos);
+  });
+  const sortedStrats = Object.entries(stratScore).sort((a,b) => b[1]-a[1]);
+  const topStrat = sortedStrats[0]?.[0] || '—';
+  const topStops = (topStrat.match(/→/g)||[]).length;
+  const stopWord = topStops === 0 ? 'NO-STOP' : topStops === 1 ? '1-STOP' : topStops+'-STOP';
+
+  // Render recommended strategy
+  const tyrePills = (key, big) => key.split(' → ').map(c => {
+    const bg = COMPOUND_COLORS[c]||'#555', fg = COMPOUND_TEXT[c]||'#fff';
+    const p = big ? 'padding:5px 13px;font-size:11px' : 'padding:2px 7px;font-size:9px';
+    return `<span style="display:inline-flex;align-items:center;justify-content:center;border-radius:3px;font-family:'Orbitron',sans-serif;font-weight:700;background:${bg};color:${fg};${p}">${c}</span>`;
+  }).join(`<span style="color:var(--text3);font-size:12px;margin:0 3px">→</span>`);
+
+  recEl.innerHTML = `
+    <div style="margin-bottom:14px">
+      <div class="stat-lbl" style="margin-bottom:9px">OPTIMAL STRATEGY (${stopWord})</div>
+      <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-bottom:9px">${tyrePills(topStrat, true)}</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text3)">
+        USED BY ${stratCount[topStrat]} DRIVER${stratCount[topStrat]!==1?'S':''} · ${totalLaps} RACE LAPS${hasWet?' · 🌧 WET CONDITIONS DETECTED':''}
+      </div>
+    </div>
+    ${sortedStrats.length > 1 ? `<div style="border-top:1px solid var(--border);padding-top:10px">
+      <div class="stat-lbl" style="margin-bottom:9px">ALTERNATIVE STRATEGIES</div>
+      ${sortedStrats.slice(1,4).map(([key]) => `
+        <div style="display:flex;align-items:center;gap:4px;margin-bottom:7px;flex-wrap:wrap">
+          ${tyrePills(key, false)}
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text3);margin-left:5px">${stratCount[key]} driver${stratCount[key]!==1?'s':''}</span>
+        </div>`).join('')}
+    </div>` : ''}
+  `;
+
+  // Strategy breakdown by stop count
+  const stopCounts = {};
+  Object.values(driverStints).forEach(arr => {
+    const stops = arr.length - 1;
+    const lbl = stops === 0 ? 'NO STOP' : stops === 1 ? '1-STOP' : stops+'-STOP';
+    stopCounts[lbl] = (stopCounts[lbl]||0) + 1;
+  });
+  const totalDrvs = Object.keys(driverStints).length;
+  sumEl.innerHTML = Object.entries(stopCounts).sort((a,b)=>b[1]-a[1]).map(([lbl, cnt]) => {
+    const pct = Math.round((cnt/totalDrvs)*100);
+    return `<div class="champ-row">
+      <div class="champ-hdr">
+        <span class="champ-name">${lbl}</span>
+        <span class="champ-pts">${cnt} driver${cnt!==1?'s':''} <span style="font-size:9px;color:var(--text3)">(${pct}%)</span></span>
+      </div>
+      <div class="bar-bg"><div class="bar-fill" style="width:${pct}%;background:var(--accent3)"></div></div>
+    </div>`;
+  }).join('');
+
+  // Legend
+  const usedCompounds = [...new Set(stints.map(s => s.compound).filter(Boolean))];
+  document.getElementById('strategy-legend').innerHTML = usedCompounds.map(c => {
+    const bg = COMPOUND_COLORS[c]||'#555', fg = COMPOUND_TEXT[c]||'#fff';
+    return `<span style="display:inline-flex;align-items:center;gap:4px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text2)"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${bg}"></span>${c}</span>`;
+  }).join('');
+
+  // Driver strategy rows sorted by finish position
+  const sortedDrivers = Object.keys(driverStints).sort((a,b) => {
+    return (latestByDrv[a]?.position||99) - (latestByDrv[b]?.position||99);
+  });
+
+  drvEl.innerHTML = sortedDrivers.map(dn => {
+    const d = S.drivers[dn];
+    const col = driverColor(d);
+    const arr = driverStints[dn];
+    const pos = latestByDrv[dn]?.position;
+    const posBadge = pos ? `<span class="pos-badge ${['','p1','p2','p3'][pos]||'pn'}">${pos}</span>` : '';
+    const stops = arr.length - 1;
+    const stopLbl = stops === 0 ? 'NO STOP' : stops === 1 ? '1-STOP' : stops+'-STOP';
+    const tagCls = stops <= 1 ? 't-blue' : stops === 2 ? 't-orange' : 't-red';
+
+    const barSegs = arr.map(s => {
+      const lapCount = Math.max(1, (s.lap_end || totalLaps) - (s.lap_start || 1) + 1);
+      const pct = (lapCount / totalLaps) * 100;
+      const comp = s.compound || 'UNKNOWN';
+      const bg = COMPOUND_COLORS[comp]||'#555';
+      const fg = COMPOUND_TEXT[comp]||'#fff';
+      const lbl = lapCount > totalLaps * 0.1 ? comp[0] : '';
+      return `<div class="stint-seg" style="width:${pct}%;background:${bg};color:${fg}" title="${comp}: Laps ${s.lap_start}–${s.lap_end||'?'} (${lapCount} laps)">${lbl}</div>`;
+    }).join('');
+
+    const detail = arr.map(s => {
+      const lapCount = Math.max(1, (s.lap_end || totalLaps) - (s.lap_start || 1) + 1);
+      const comp = s.compound || '?';
+      const bg = COMPOUND_COLORS[comp]||'#555', fg = COMPOUND_TEXT[comp]||'#fff';
+      const age = s.tyre_age_at_start > 0 ? ` <span style="color:var(--text3)">(used+${s.tyre_age_at_start})</span>` : '';
+      return `<span style="display:inline-flex;align-items:center;gap:3px"><span style="background:${bg};color:${fg};padding:1px 5px;border-radius:2px;font-family:'Orbitron',sans-serif;font-size:8px;font-weight:700">${comp[0]}</span><span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text3)">L${s.lap_start}–${s.lap_end||'?'} (${lapCount})${age}</span></span>`;
+    }).join('<span style="color:var(--border2);margin:0 3px">·</span>');
+
+    return `<div class="stint-row">
+      <div style="display:flex;align-items:center;gap:8px">
+        ${posBadge}
+        <div class="drv-dot" style="background:${col}"></div>
+        <div>
+          <span class="drv-abbr" style="color:${col}">${d?.name_acronym||'#'+dn}</span>
+          <div style="font-size:9px;color:var(--text3);margin-top:1px">${d?.team_name||''}</div>
+        </div>
+      </div>
+      <div>
+        <div class="stint-bar">${barSegs}</div>
+        <div class="stint-detail">${detail}</div>
+      </div>
+      <div style="text-align:right"><span class="tag ${tagCls}">${stopLbl}</span></div>
     </div>`;
   }).join('');
 }
