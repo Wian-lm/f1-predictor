@@ -16,7 +16,7 @@ const emptyData = {
 const SessionContext = createContext(null);
 
 export function SessionProvider({ children }) {
-  const [year, setYear] = useState('2024');
+  const [year, setYear] = useState('2026');
   const [meetings, setMeetings] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [meetingKey, setMeetingKey] = useState('');

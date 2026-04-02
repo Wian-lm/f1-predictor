@@ -64,7 +64,7 @@ All helpers live in `src/api/openf1.js` and accept a `params` object for filteri
 
 ## Supported Seasons
 
-2023, 2024, 2025 — hardcoded in session selectors.
+2023, 2024, 2025, 2026 — hardcoded in session selectors. 2026 is the default. Add future years by adding an `<option>` to the year `<select>` in `src/App.jsx` and updating the default `useState` in `src/context/SessionContext.jsx`.
 
 ## Architecture Notes
 
