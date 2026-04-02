@@ -25,7 +25,7 @@ export default function Dashboard() {
   const { drivers, laps, pitStops, weather, positions } = data;
 
   if (loading) return <Empty icon="⟳" text="FETCHING FROM OPENF1..." />;
-  if (!loaded) return <Empty icon="🏎️" text="SELECT A SESSION AND CLICK LOAD DATA" />;
+  if (!loaded) return <Empty icon="🏎️" text="SELECT A SESSION ABOVE TO LOAD DATA" />;
 
   const fastestLap = laps.reduce((b, l) => l.lap_duration && (!b || l.lap_duration < b.lap_duration) ? l : b, null);
   const lastWx = weather[weather.length - 1];

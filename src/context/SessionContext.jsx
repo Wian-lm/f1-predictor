@@ -3,49 +3,57 @@ import supabase from '../lib/supabase';
 
 const BASE = 'https://api.openf1.org/v1';
 
-function apiFetch(ep, params = {}) {
+function apiFetch(ep, params = {}, timeoutMs = 20000) {
   const u = new URL(BASE + ep);
   Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, v));
-  return fetch(u.toString()).then(r => r.ok ? r.json() : []).catch(() => []);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(u.toString(), { signal: controller.signal })
+    .then(r => { clearTimeout(timer); return r.ok ? r.json() : []; })
+    .catch(() => { clearTimeout(timer); return []; });
 }
 
 async function fetchSessionData(sk) {
-  const [driversArr, laps, positions, pitStops, weather, raceControl, radio, standings, stints] = await Promise.all([
+  const [driversArr, laps, positions, pitStops, weather, raceControl, radio, stints] = await Promise.all([
     apiFetch('/drivers',      { session_key: sk }),
-    apiFetch('/laps',         { session_key: sk }),
+    apiFetch('/laps',         { session_key: sk }, 60000), // laps can be large — longer timeout
     apiFetch('/position',     { session_key: sk }),
     apiFetch('/pit',          { session_key: sk }),
     apiFetch('/weather',      { session_key: sk }),
     apiFetch('/race_control', { session_key: sk }),
     apiFetch('/team_radio',   { session_key: sk }),
-    apiFetch('/standings',    { session_key: sk }),
     apiFetch('/stints',       { session_key: sk }),
   ]);
   const drivers = {};
   driversArr.forEach(d => { drivers[d.driver_number] = d; });
-  return { drivers, laps, positions, pitStops, weather, raceControl, radio, standings, stints };
+  return { drivers, laps, positions, pitStops, weather, raceControl, radio, standings: [], stints };
 }
 
-// Returns cached data if available, otherwise fetches from OpenF1 and caches it
+// Returns cached data if valid, otherwise fetches from OpenF1 and caches in background
 async function fetchWithCache(sk) {
-  // Check cache
-  const { data: cached } = await supabase
-    .from('session_cache')
-    .select('data')
-    .eq('session_key', String(sk))
-    .single();
+  try {
+    const { data: cached } = await supabase
+      .from('session_cache')
+      .select('data')
+      .eq('session_key', String(sk))
+      .single();
 
-  if (cached) return cached.data;
+    if (cached?.data && (
+      Object.keys(cached.data.drivers || {}).length > 0 ||
+      (cached.data.laps || []).length > 0
+    )) {
+      return cached.data;
+    }
+  } catch (_) { /* cache miss — fall through to API */ }
 
-  // Not cached — fetch from OpenF1
   const result = await fetchSessionData(sk);
 
-  // Store in cache (race data never changes, so no expiry needed)
-  await supabase.from('session_cache').upsert({
+  // Write cache in background — never block on it
+  supabase.from('session_cache').upsert({
     session_key: String(sk),
     data: result,
     cached_at: new Date().toISOString(),
-  });
+  }).catch(() => {});
 
   return result;
 }
@@ -76,7 +84,6 @@ export function SessionProvider({ children }) {
     sessionsRef.current = sess;
   }
 
-  // Load bookmarks from Supabase
   async function loadBookmarks() {
     const { data: bm } = await supabase
       .from('bookmarks')
@@ -107,16 +114,16 @@ export function SessionProvider({ children }) {
     return bookmarks.some(b => b.session_key === String(sk));
   }
 
-  // Auto-load most recent past race on startup, fall back through years
+  // Auto-load most recent past race on startup
   useEffect(() => {
-    loadBookmarks();
+    loadBookmarks().catch(() => {});
 
     async function autoLoad() {
       const now = new Date();
       const yearsToTry = ['2026', '2025', '2024'];
+
       let sorted = [];
       let chosenYear = '2026';
-
       for (const y of yearsToTry) {
         const mtgs = await apiFetch('/meetings', { year: y });
         sorted = mtgs.sort((a, b) => new Date(a.date_start) - new Date(b.date_start));
@@ -141,12 +148,16 @@ export function SessionProvider({ children }) {
       setSessionInfo(raceSession);
 
       setLoading(true);
-      const result = await fetchWithCache(sk);
-      setData(result);
-      setLoading(false);
-      setLoaded(true);
+      try {
+        const result = await fetchWithCache(sk);
+        setData(result);
+        setLoaded(true);
+      } finally {
+        setLoading(false);
+      }
     }
-    autoLoad();
+
+    autoLoad().catch(() => setLoading(false));
   }, []);
 
   const onYearChange = useCallback(async (y) => {
@@ -180,10 +191,13 @@ export function SessionProvider({ children }) {
     setSessionInfo(sess || null);
     setLoading(true);
     setLoaded(false);
-    const result = await fetchWithCache(sk);
-    setData(result);
-    setLoading(false);
-    setLoaded(true);
+    try {
+      const result = await fetchWithCache(sk);
+      setData(result);
+      setLoaded(true);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   const loadAll = useCallback(async (sk) => {
@@ -192,19 +206,20 @@ export function SessionProvider({ children }) {
     setSessionInfo(sess || null);
     setLoading(true);
     setLoaded(false);
-    // Force fresh fetch on manual reload, bypass cache
-    const result = await fetchSessionData(sk);
-    await supabase.from('session_cache').upsert({
-      session_key: String(sk),
-      data: result,
-      cached_at: new Date().toISOString(),
-    });
-    setData(result);
-    setLoading(false);
-    setLoaded(true);
+    try {
+      const result = await fetchSessionData(sk);
+      supabase.from('session_cache').upsert({
+        session_key: String(sk),
+        data: result,
+        cached_at: new Date().toISOString(),
+      }).catch(() => {});
+      setData(result);
+      setLoaded(true);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  // Jump to a bookmarked session
   const loadBookmark = useCallback(async (bm) => {
     setYear(bm.year);
     setLoaded(false);
@@ -224,10 +239,13 @@ export function SessionProvider({ children }) {
     setSessionKey(sk);
     setSessionInfo({ session_name: bm.session_name, session_type: bm.session_type });
     setLoading(true);
-    const result = await fetchWithCache(sk);
-    setData(result);
-    setLoading(false);
-    setLoaded(true);
+    try {
+      const result = await fetchWithCache(sk);
+      setData(result);
+      setLoaded(true);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   return (

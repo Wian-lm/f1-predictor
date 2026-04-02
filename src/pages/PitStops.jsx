@@ -29,7 +29,7 @@ export default function PitStops() {
   const maxStop = ranked[ranked.length - 1]?.stop_duration || 5;
 
   if (loading) return <Empty icon="⟳" text="FETCHING FROM OPENF1..." />;
-  if (!loaded) return <Empty icon="🔧" text="SELECT A SESSION AND CLICK LOAD DATA" />;
+  if (!loaded) return <Empty icon="🔧" text="SELECT A SESSION ABOVE TO LOAD DATA" />;
   if (!pitStops.length) return <Empty icon="🔧" text="NO PIT STOP DATA FOR THIS SESSION" />;
 
   return (

@@ -34,7 +34,7 @@ export default function RaceResults() {
   const posCls = pos => ['', 'p1', 'p2', 'p3'][pos] || 'pn';
 
   if (loading) return <Empty icon="⟳" text="FETCHING FROM OPENF1..." />;
-  if (!loaded) return <Empty icon="🏁" text="SELECT A SESSION AND CLICK LOAD DATA" />;
+  if (!loaded) return <Empty icon="🏁" text="SELECT A SESSION ABOVE TO LOAD DATA" />;
   if (!sorted.length) return <Empty icon="🏁" text="NO POSITION DATA FOR THIS SESSION" />;
 
   return (

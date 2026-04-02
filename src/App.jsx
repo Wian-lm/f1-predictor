@@ -164,21 +164,23 @@ function SessionBar() {
           ))}
         </select>
 
-        {/* Reload button */}
-        <button
-          onClick={() => loadAll(sessionKey)}
-          disabled={!canLoad || loading}
-          style={{
-            padding: '5px 16px',
-            background: canLoad && !loading ? 'var(--accent)' : 'var(--surface3)',
-            color: canLoad && !loading ? '#fff' : 'var(--text3)',
-            border: 'none', borderRadius: 3,
-            fontFamily: "'Orbitron', sans-serif", fontSize: 9, fontWeight: 700,
-            letterSpacing: '0.12em', cursor: canLoad && !loading ? 'pointer' : 'not-allowed',
-          }}
-        >
-          {loading ? '⟳ LOADING...' : loaded ? '↺ RELOAD' : '▶ LOAD DATA'}
-        </button>
+        {/* Reload button — only show after data is loaded, for force-refreshing */}
+        {loaded && (
+          <button
+            onClick={() => loadAll(sessionKey)}
+            disabled={loading}
+            style={{
+              padding: '5px 16px',
+              background: loading ? 'var(--surface3)' : 'var(--surface3)',
+              color: loading ? 'var(--text3)' : 'var(--text2)',
+              border: '1px solid var(--border2)', borderRadius: 3,
+              fontFamily: "'Orbitron', sans-serif", fontSize: 9, fontWeight: 700,
+              letterSpacing: '0.12em', cursor: loading ? 'not-allowed' : 'pointer',
+            }}
+          >
+            ↺ RELOAD
+          </button>
+        )}
 
         {/* Bookmark toggle */}
         {loaded && (

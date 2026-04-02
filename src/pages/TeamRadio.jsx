@@ -42,7 +42,7 @@ export default function TeamRadio() {
   );
 
   if (loading) return <Empty icon="⟳" text="FETCHING FROM OPENF1..." />;
-  if (!loaded) return <Empty icon="📻" text="SELECT A SESSION AND CLICK LOAD DATA" />;
+  if (!loaded) return <Empty icon="📻" text="SELECT A SESSION ABOVE TO LOAD DATA" />;
   if (!radio.length) return <Empty icon="📻" text="NO TEAM RADIO FOR THIS SESSION" />;
 
   return (

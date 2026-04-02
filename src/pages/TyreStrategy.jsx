@@ -78,7 +78,7 @@ export default function TyreStrategy() {
   const sortedDrivers = useMemo(() => Object.keys(driverStints).sort((a, b) => (latestByDrv[a]?.position || 99) - (latestByDrv[b]?.position || 99)), [driverStints, latestByDrv]);
 
   if (loading) return <Empty icon="⟳" text="FETCHING FROM OPENF1..." />;
-  if (!loaded) return <Empty icon="🏎" text="SELECT A SESSION AND CLICK LOAD DATA" />;
+  if (!loaded) return <Empty icon="🏎" text="SELECT A SESSION ABOVE TO LOAD DATA" />;
   if (!stints.length) return <Empty icon="🏎" text="NO STINT DATA FOR THIS SESSION" />;
 
   const topStrat = sortedStrats[0]?.[0] || '—';

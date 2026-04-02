@@ -65,7 +65,7 @@ export default function PredictionModel() {
   const maxScore = predictions[0]?.total || 1;
 
   if (loading) return <Empty icon="⟳" text="FETCHING FROM OPENF1..." />;
-  if (!loaded) return <Empty icon="🤖" text="SELECT A SESSION AND CLICK LOAD DATA" />;
+  if (!loaded) return <Empty icon="🤖" text="SELECT A SESSION ABOVE TO LOAD DATA" />;
   if (!predictions.length) return <Empty icon="🤖" text="NOT ENOUGH DATA FOR PREDICTIONS" />;
 
   return (

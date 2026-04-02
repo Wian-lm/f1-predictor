@@ -20,7 +20,7 @@ export default function RaceControl() {
   const msgs = [...raceControl].reverse();
 
   if (loading) return <Empty icon="⟳" text="FETCHING FROM OPENF1..." />;
-  if (!loaded) return <Empty icon="🚩" text="SELECT A SESSION AND CLICK LOAD DATA" />;
+  if (!loaded) return <Empty icon="🚩" text="SELECT A SESSION ABOVE TO LOAD DATA" />;
   if (!msgs.length) return <Empty icon="🚩" text="NO RACE CONTROL MESSAGES FOR THIS SESSION" />;
 
   return (
