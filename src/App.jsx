@@ -95,6 +95,11 @@ function SessionBar() {
       >
         {loading ? '⟳ LOADING...' : loaded ? '↺ RELOAD' : '▶ LOAD DATA'}
       </button>
+      {loading && (
+        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: 'var(--text3)', letterSpacing: '0.1em' }}>
+          FETCHING LATEST RACE DATA...
+        </span>
+      )}
 
       {sessionInfo && (
         <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: 'var(--text3)', marginLeft: 4 }}>
