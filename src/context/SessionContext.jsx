@@ -213,49 +213,37 @@ export function SessionProvider({ children }) {
     return bookmarks.some(b => b.session_key === String(sk));
   }
 
-  // Auto-load most recent completed race on startup
+  // On startup: populate dropdowns only. No session is auto-selected and no
+  // data endpoints fire — those only trigger when the user picks a session.
   useEffect(() => {
     loadBookmarks().catch(() => {});
 
-    async function autoLoad() {
+    async function populateDropdowns() {
       const now = new Date();
       const yearsToTry = ['2026', '2025', '2024'];
 
-      let sorted = [];
+      let meetings = [];
       let chosenYear = '2026';
       for (const y of yearsToTry) {
-        sorted = await loadCalendar(y);
-        if (sorted.length) { chosenYear = y; break; }
+        meetings = await loadCalendar(y);
+        if (meetings.length) { chosenYear = y; break; }
       }
 
       setYear(chosenYear);
-      setMeetings(sorted);
-      if (!sorted.length) return;
+      setMeetings(meetings);
+      if (!meetings.length) return;
 
-      const past = sorted.filter(m => new Date(m.date_start) <= now);
-      const latest = past.length ? past[past.length - 1] : sorted[sorted.length - 1];
+      // Auto-select the most recent past meeting so sessions are pre-populated
+      const past = meetings.filter(m => new Date(m.date_start) <= now);
+      const latest = past.length ? past[past.length - 1] : meetings[meetings.length - 1];
       setMeetingKey(String(latest.meeting_key));
 
       const sess = await loadMeetingSessions(latest.meeting_key);
       updateSessions(sess);
-      if (!sess.length) return;
-
-      const raceSession = sess.find(s => s.session_type === 'Race') || sess[sess.length - 1];
-      const sk = String(raceSession.session_key);
-      setSessionKey(sk);
-      setSessionInfo(raceSession);
-
-      setLoading(true);
-      try {
-        const result = await fetchWithCache(sk);
-        setData(result);
-        setLoaded(true);
-      } finally {
-        setLoading(false);
-      }
+      // Stop here — user must select a session to trigger data loading
     }
 
-    autoLoad().catch(() => setLoading(false));
+    populateDropdowns().catch(() => {});
   }, []);
 
   const onYearChange = useCallback(async (y) => {
