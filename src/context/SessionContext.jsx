@@ -230,6 +230,37 @@ export function SessionProvider({ children }) {
         if (meetings.length) {
           setYear(y);
           setMeetings(meetings);
+
+          // Auto-select the most recent past meeting
+          const now = new Date();
+          const pastMeetings = y !== now.getFullYear().toString()
+            ? meetings
+            : meetings.filter(m => new Date(m.date_start) <= now);
+          if (!pastMeetings.length) return;
+
+          const lastMeeting = pastMeetings[pastMeetings.length - 1];
+          const mk = String(lastMeeting.meeting_key);
+          setMeetingKey(mk);
+
+          const sess = await loadMeetingSessions(mk);
+          updateSessions(sess);
+          if (!sess.length) return;
+
+          // Auto-select the last session (typically the Race)
+          const lastSession = sess[sess.length - 1];
+          const sk = String(lastSession.session_key);
+          setSessionKey(sk);
+          setSessionInfo(lastSession);
+          setLoading(true);
+          setLoaded(false);
+          try {
+            const result = await fetchWithCache(sk);
+            setData(result);
+            setLoaded(true);
+          } finally {
+            setLoading(false);
+          }
+
           return;
         }
       }
