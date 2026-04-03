@@ -4,12 +4,12 @@ import { SessionProvider, useSession } from './context/SessionContext';
 import Dashboard from './pages/Dashboard';
 import LapTimes from './pages/LapTimes';
 import TyreStrategy from './pages/TyreStrategy';
-import RaceResults from './pages/RaceResults';
 import PitStops from './pages/PitStops';
 import Weather from './pages/Weather';
 import RaceControl from './pages/RaceControl';
 import TeamRadio from './pages/TeamRadio';
 import ChampionshipStandings from './pages/ChampionshipStandings';
+import Standings from './pages/Standings';
 import PredictionModel from './pages/PredictionModel';
 
 const VISITED_KEY = 'f1pw_visited';
@@ -17,12 +17,12 @@ const VISITED_KEY = 'f1pw_visited';
 const features = [
   { icon: '🏠', title: 'OVERVIEW',      desc: 'Live standings, fastest lap, weather and pit stop summary for any session.' },
   { icon: '⏱',  title: 'LAP TIMING',    desc: 'Per-driver lap time charts. Spot undercuts, traffic, and degradation trends.' },
-  { icon: '🏁', title: 'POSITIONS',     desc: 'Position changes throughout a race, from lights out to chequered flag.' },
+  { icon: '🏆', title: 'RESULTS',       desc: 'Final race classification with gaps, DNF reasons, grid positions, and points.' },
+  { icon: '📊', title: 'STANDINGS',     desc: 'Driver and constructor championship standings with points gaps and recent form.' },
   { icon: '🔧', title: 'PIT STOPS',     desc: 'Pit stop timing and tyre change data for every driver.' },
   { icon: '🌦', title: 'WEATHER',       desc: 'Track and air temperature, humidity, wind, and rainfall throughout a session.' },
   { icon: '🚩', title: 'RACE CONTROL',  desc: 'Safety car periods, yellow and red flags, penalties and DRS status.' },
   { icon: '📻', title: 'TEAM RADIO',    desc: 'Timestamped radio messages between drivers and their engineers.' },
-  { icon: '🏆', title: 'STANDINGS',     desc: 'Driver and constructor championship standings for the selected season.' },
   { icon: '🏎', title: 'TYRE STRATEGY', desc: 'Stint lengths and compound choices visualised for every driver.' },
   { icon: '🤖', title: 'PREDICTION',    desc: 'Model that scores drivers on lap consistency, tyre deg, and pit timing.' },
 ];
@@ -148,14 +148,14 @@ function WelcomeModal({ onDismiss }) {
 
 const navItems = [
   { to: '/',              label: '🏠 OVERVIEW'     },
+  { to: '/standings',     label: '🏆 RESULTS'       },
+  { to: '/championship',  label: '📊 STANDINGS'     },
   { to: '/lap-times',     label: '⏱ LAP TIMING'    },
-  { to: '/race-results',  label: '🏁 POSITIONS'     },
+  { to: '/tyre-strategy', label: '🏎 TYRE STRATEGY' },
   { to: '/pit-stops',     label: '🔧 PIT STOPS'     },
   { to: '/weather',       label: '🌦 WEATHER'       },
   { to: '/race-control',  label: '🚩 RACE CONTROL'  },
   { to: '/team-radio',    label: '📻 TEAM RADIO'    },
-  { to: '/standings',     label: '🏆 STANDINGS'     },
-  { to: '/tyre-strategy', label: '🏎 TYRE STRATEGY' },
   { to: '/prediction',    label: '🤖 PREDICTION'    },
 ];
 
@@ -442,13 +442,13 @@ function Layout() {
       <main style={{ padding: '20px 24px', maxWidth: 1600, margin: '0 auto', position: 'relative', zIndex: 1 }}>
         <Routes>
           <Route path="/"              element={<Dashboard />} />
+          <Route path="/standings"     element={<ChampionshipStandings />} />
+          <Route path="/championship"  element={<Standings />} />
           <Route path="/lap-times"     element={<LapTimes />} />
-          <Route path="/race-results"  element={<RaceResults />} />
           <Route path="/pit-stops"     element={<PitStops />} />
           <Route path="/weather"       element={<Weather />} />
           <Route path="/race-control"  element={<RaceControl />} />
           <Route path="/team-radio"    element={<TeamRadio />} />
-          <Route path="/standings"     element={<ChampionshipStandings />} />
           <Route path="/tyre-strategy" element={<TyreStrategy />} />
           <Route path="/prediction"    element={<PredictionModel />} />
         </Routes>

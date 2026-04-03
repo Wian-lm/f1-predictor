@@ -1,6 +1,5 @@
-import { useMemo } from 'react';
 import { useSession } from '../context/SessionContext';
-import { driverColor } from '../utils';
+import { teamColorByName } from '../utils';
 
 function Empty({ icon, text }) {
   return (
@@ -11,128 +10,172 @@ function Empty({ icon, text }) {
   );
 }
 
-function Bar({ pct, color }) {
+const POS_STYLE = {
+  1: { background: '#b8860b', color: '#fff' },
+  2: { background: '#888', color: '#fff' },
+  3: { background: '#a0522d', color: '#fff' },
+};
+
+function PosBadge({ pos, text }) {
+  const style = POS_STYLE[pos] || { background: 'var(--surface3)', color: 'var(--text2)' };
   return (
-    <div style={{ height: 6, background: 'var(--surface3)', borderRadius: 3, overflow: 'hidden' }}>
-      <div style={{ height: '100%', borderRadius: 3, transition: 'width .8s ease', width: `${pct}%`, background: color }} />
-    </div>
+    <span style={{
+      fontFamily: "'Orbitron', sans-serif", fontSize: 9, fontWeight: 700,
+      padding: '2px 6px', borderRadius: 2, minWidth: 28, textAlign: 'center',
+      display: 'inline-block', ...style,
+    }}>
+      {text || `P${pos}`}
+    </span>
   );
 }
 
-// Points awarded per finishing position (F1 scoring)
-const POINTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
+function StatusBadge({ status }) {
+  const colours = {
+    DNF: { bg: 'rgba(232,0,45,0.18)', border: 'var(--accent)', color: 'var(--accent)' },
+    DNS: { bg: 'rgba(100,100,100,0.18)', border: 'var(--text3)', color: 'var(--text3)' },
+    DSQ: { bg: 'rgba(255,165,0,0.18)', border: '#ff8c00', color: '#ff8c00' },
+  };
+  const c = colours[status] || {};
+  return (
+    <span style={{
+      fontFamily: "'Orbitron', sans-serif", fontSize: 8, fontWeight: 700,
+      padding: '2px 5px', borderRadius: 2, border: `1px solid ${c.border}`,
+      background: c.bg, color: c.color, letterSpacing: '0.08em',
+    }}>
+      {status}
+    </span>
+  );
+}
 
-export default function ChampionshipStandings() {
-  const { loaded, loading, data, sessionInfo } = useSession();
-  const { drivers, positions, laps } = data;
+function DeltaBadge({ grid, position, isDNS }) {
+  if (isDNS || grid <= 0 || !position) return <span style={{ color: 'var(--text3)' }}>—</span>;
+  const delta = grid - position;
+  if (delta === 0) return <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 9, color: 'var(--text3)' }}>—</span>;
+  return (
+    <span style={{
+      fontFamily: "'Orbitron', sans-serif", fontSize: 9, fontWeight: 700,
+      color: delta > 0 ? 'var(--green)' : 'var(--accent)',
+    }}>
+      {delta > 0 ? `+${delta}` : delta}
+    </span>
+  );
+}
 
-  // Final position per driver from the last position entry
-  const finalPositions = useMemo(() => {
-    const latest = {};
-    positions.forEach(p => {
-      if (!latest[p.driver_number] || new Date(p.date) > new Date(latest[p.driver_number].date))
-        latest[p.driver_number] = p;
-    });
-    return Object.values(latest).sort((a, b) => (a.position || 99) - (b.position || 99));
-  }, [positions]);
+export default function Results() {
+  const { loaded, loading, raceResults, raceResultsLoading, sessionInfo } = useSession();
+  const sessionType = sessionInfo?.session_type;
 
-  // Best lap per driver
-  const bestLaps = useMemo(() => {
-    const m = {};
-    laps.forEach(l => {
-      if (l.lap_duration && (!m[l.driver_number] || l.lap_duration < m[l.driver_number]))
-        m[l.driver_number] = l.lap_duration;
-    });
-    return m;
-  }, [laps]);
-
-  // Team points from finishing positions (sum of both drivers)
-  const teamPoints = useMemo(() => {
-    const teams = {};
-    finalPositions.forEach(p => {
-      const d = drivers[p.driver_number];
-      const team = d?.team_name;
-      if (!team) return;
-      const pts = POINTS[p.position - 1] || 0;
-      if (!teams[team]) teams[team] = { name: team, pts: 0, color: driverColor(d) };
-      teams[team].pts += pts;
-    });
-    return Object.values(teams).sort((a, b) => b.pts - a.pts);
-  }, [finalPositions, drivers]);
-
-  const maxPts = (POINTS[0] || 25);
-  const maxTeamPts = teamPoints[0]?.pts || 1;
-
-  if (loading) return <Empty icon="⟳" text="FETCHING FROM OPENF1..." />;
+  if (loading || raceResultsLoading) return <Empty icon="⟳" text="FETCHING DATA..." />;
   if (!loaded) return <Empty icon="🏆" text="SELECT A SESSION ABOVE TO LOAD DATA" />;
-  if (!finalPositions.length) return <Empty icon="🏆" text="NO POSITION DATA FOR THIS SESSION" />;
 
-  const isRace = sessionInfo?.session_type === 'Race';
+  if (sessionType !== 'Race' && sessionType !== 'Sprint') {
+    return <Empty icon="🏆" text={`${sessionType?.toUpperCase() || 'SESSION'} · NO RACE CLASSIFICATION`} />;
+  }
+
+  if (!raceResults) return <Empty icon="🏆" text="RACE RESULTS NOT YET AVAILABLE" />;
+
+  const { raceName, circuit, country, date, round, season, results } = raceResults;
+  const isSprint = sessionType === 'Sprint';
 
   return (
     <div>
-      <div style={{ marginBottom: 12, fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: 'var(--text3)', letterSpacing: '0.1em' }}>
-        {isRace ? 'POINTS AWARDED BASED ON FINISHING POSITIONS' : 'FINAL CLASSIFICATION · NON-RACE SESSION (NO POINTS AWARDED)'}
+      {/* Header */}
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 13, fontWeight: 700, color: '#fff', marginBottom: 4 }}>
+          {raceName}
+        </div>
+        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: 'var(--text3)', letterSpacing: '0.12em' }}>
+          {circuit} · {country} · {date ? new Date(date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}
+          {' · '}{isSprint ? 'SPRINT' : `ROUND ${round} · ${season}`}
+        </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-        {/* DRIVER CLASSIFICATION */}
-        <div className="card">
-          <div className="card-hdr"><div className="card-title">👤 DRIVER CLASSIFICATION</div></div>
-          <div className="card-body">
-            {finalPositions.map(p => {
-              const d = drivers[p.driver_number] || {};
-              const col = driverColor(d);
-              const pts = isRace ? (POINTS[p.position - 1] || 0) : null;
-              const best = bestLaps[p.driver_number];
-              const pct = isRace ? Math.round(((pts || 0) / maxPts) * 100) : Math.round(((finalPositions.length - p.position + 1) / finalPositions.length) * 100);
-              return (
-                <div key={p.driver_number} style={{ marginBottom: 10 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 9, color: 'var(--text3)', minWidth: 14 }}>P{p.position}</span>
-                      <div className="drv-dot" style={{ background: col }} />
-                      <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: 'var(--text)' }}>{d.name_acronym || '#' + p.driver_number}</span>
-                      <span style={{ fontSize: 9, color: 'var(--text3)' }}>{d.team_name || ''}</span>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      {isRace && <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 11, fontWeight: 700, color: pts ? '#fff' : 'var(--text3)' }}>{pts} PTS</span>}
-                      {best && <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: 'var(--text3)', marginLeft: 8 }}>{best.toFixed(3)}s</span>}
-                    </div>
-                  </div>
-                  <Bar pct={pct} color={col} />
-                </div>
-              );
-            })}
-          </div>
+      <div className="card">
+        <div className="card-hdr">
+          <div className="card-title">{isSprint ? '⚡ SPRINT CLASSIFICATION' : '🏁 RACE CLASSIFICATION'}</div>
+          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: 'var(--text3)' }}>
+            {results.length} CLASSIFIED
+          </span>
         </div>
+        <div className="tbl-wrap">
+          <table className="tbl">
+            <thead>
+              <tr>
+                <th>POS</th>
+                <th>DRIVER</th>
+                <th>TEAM</th>
+                <th>TIME / GAP</th>
+                <th>REASON</th>
+                <th>LAPS</th>
+                <th>PTS</th>
+                <th>GRID</th>
+                <th>Δ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {results.map((r) => {
+                const teamCol = teamColorByName(r.team);
+                const isDNS   = r.status === 'DNS';
+                const isDNF   = r.status === 'DNF';
+                const isDSQ   = r.status === 'DSQ';
+                const isOut   = isDNS || isDNF || isDSQ;
 
-        {/* TEAM CLASSIFICATION */}
-        <div className="card">
-          <div className="card-hdr"><div className="card-title">🏎️ CONSTRUCTOR CLASSIFICATION</div></div>
-          <div className="card-body">
-            {teamPoints.length
-              ? teamPoints.map((t, i) => {
-                  const pct = Math.round((t.pts / maxTeamPts) * 100);
-                  return (
-                    <div key={t.name} style={{ marginBottom: 10 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 9, color: 'var(--text3)' }}>#{i + 1}</span>
-                          <div className="drv-dot" style={{ background: t.color }} />
-                          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: 'var(--text)' }}>{t.name}</span>
-                        </div>
-                        <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 11, fontWeight: 700, color: '#fff' }}>
-                          {isRace ? `${t.pts} PTS` : `${finalPositions.filter(p => drivers[p.driver_number]?.team_name === t.name).length} DRIVERS`}
-                        </span>
-                      </div>
-                      <Bar pct={pct} color={t.color} />
-                    </div>
+                // Time/gap cell
+                let timeDisplay;
+                if (isDNS || isDNF || isDSQ) {
+                  timeDisplay = <StatusBadge status={r.status} />;
+                } else if (r.statusDetail) {
+                  // Lapped car: statusDetail = "+1 Lap"
+                  timeDisplay = (
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: 'var(--text3)' }}>
+                      {r.statusDetail}
+                    </span>
                   );
-                })
-              : <Empty icon="🏎️" text="NO TEAM DATA" />
-            }
-          </div>
+                } else {
+                  timeDisplay = (
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: r.position === 1 ? 'var(--green)' : 'var(--text)' }}>
+                      {r.time || '—'}
+                      {r.fastestLap && (
+                        <span style={{ marginLeft: 5, fontFamily: "'Orbitron', sans-serif", fontSize: 8, color: '#bf00ff', fontWeight: 700 }}>FL</span>
+                      )}
+                    </span>
+                  );
+                }
+
+                return (
+                  <tr key={r.driverId} style={{ opacity: isOut ? 0.55 : 1 }}>
+                    <td>
+                      <PosBadge pos={r.position} text={isDNS ? 'DNS' : isDSQ ? 'DSQ' : isDNF ? 'DNF' : undefined} />
+                    </td>
+                    <td>
+                      <div className="drv-tag">
+                        <div className="drv-dot" style={{ background: 'var(--border2)' }} />
+                        <span className="drv-abbr" style={{ color: teamCol }}>{r.driverCode}</span>
+                        <span className="drv-full">{r.driver}</span>
+                      </div>
+                    </td>
+                    <td style={{ color: teamCol, fontSize: 10 }}>{r.team}</td>
+                    <td>{timeDisplay}</td>
+                    <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: 'var(--text3)' }}>
+                      {(isDNF || isDSQ) && r.statusDetail ? r.statusDetail : '—'}
+                    </td>
+                    <td style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10 }}>
+                      {r.laps > 0 ? r.laps : <span style={{ color: 'var(--text3)' }}>—</span>}
+                    </td>
+                    <td>
+                      <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 700, color: r.points > 0 ? '#fff' : 'var(--text3)' }}>
+                        {r.points > 0 ? r.points : '—'}
+                      </span>
+                    </td>
+                    <td style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, color: 'var(--text3)' }}>
+                      {r.grid > 0 ? r.grid : <span style={{ color: 'var(--text3)' }}>PL</span>}
+                    </td>
+                    <td><DeltaBadge grid={r.grid} position={r.position} isDNS={isDNS} /></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

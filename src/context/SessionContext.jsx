@@ -1,216 +1,149 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import supabase from '../lib/supabase';
 import { idbGet, idbSet } from '../lib/localCache';
-
-const BASE = 'https://api.openf1.org/v1';
-
-// ---------------------------------------------------------------------------
-// OpenF1 fetch — throttled to ≈1.8 req/s with 429 retry/backoff.
-// Only called when all cache layers miss, so rate limits are rarely an issue.
-// ---------------------------------------------------------------------------
-let _nextSlot = 0;
-function reserveSlot() {
-  const now = Date.now();
-  _nextSlot = Math.max(_nextSlot, now) + 550;
-  return _nextSlot - 550 - now;
-}
-
-async function apiFetch(ep, params = {}, timeoutMs = 30000) {
-  const u = new URL(BASE + ep);
-  Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, v));
-  const maxRetries = 4;
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    const wait = reserveSlot();
-    if (wait > 0) await new Promise(r => setTimeout(r, wait));
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const r = await fetch(u.toString(), { signal: controller.signal });
-      clearTimeout(timer);
-      if (r.status === 429) {
-        const retryAfter = parseInt(r.headers.get('Retry-After') || '0') * 1000;
-        const backoff = Math.max(retryAfter, 2000 * Math.pow(2, attempt));
-        if (attempt < maxRetries - 1) { await new Promise(res => setTimeout(res, backoff)); continue; }
-        return [];
-      }
-      return r.ok ? await r.json() : [];
-    } catch {
-      clearTimeout(timer);
-      if (attempt < maxRetries - 1) await new Promise(res => setTimeout(res, 1000 * (attempt + 1)));
-    }
-  }
-  return [];
-}
+import {
+  getSchedule, getMeetings, getSessions,
+  getSessionData, forceRefreshSessionData,
+  getRaceResults, getSprintResults,
+} from '../api/index.js';
 
 // ---------------------------------------------------------------------------
-// Calendar staleness logic.
-// If the next race is more than 7 days away, nothing can have changed — keep
-// the cache. During race week (≤7 days) refresh at most once every 6 hours.
-// After the final race of the season, refresh at most once per day.
-// ---------------------------------------------------------------------------
-function isCalendarStale(meetings, fetchedAt) {
-  const now = Date.now();
-  const age = now - fetchedAt;
-  const futureDates = meetings
-    .map(m => new Date(m.date_start).getTime())
-    .filter(t => t > now)
-    .sort((a, b) => a - b);
-
-  if (!futureDates.length) return age > 24 * 60 * 60 * 1000; // end of season — daily
-  const daysToNext = (futureDates[0] - now) / (1000 * 60 * 60 * 24);
-  if (daysToNext > 7) return false;            // no race this week — never stale
-  return age > 6 * 60 * 60 * 1000;            // race week — refresh every 6 h
-}
-
-// ---------------------------------------------------------------------------
-// Calendar: meetings list for a year.
-// Cache layers: IndexedDB → Supabase → OpenF1
-// ---------------------------------------------------------------------------
-async function loadCalendar(year) {
-  // 1. IndexedDB — check for fresh or stale data
-  const local = await idbGet(`calendar:${year}`);
-  if (local?.meetings?.length) {
-    if (!isCalendarStale(local.meetings, local.fetchedAt)) return local.meetings;
-    // stale but keep as fallback in case OpenF1 fails below
-  }
-
-  // 2. OpenF1 — short timeout, meetings list is a small request
-  const meetings = await apiFetch('/meetings', { year }, 10000);
-  const sorted = meetings.sort((a, b) => new Date(a.date_start) - new Date(b.date_start));
-  if (sorted.length) {
-    await idbSet(`calendar:${year}`, { meetings: sorted, fetchedAt: Date.now() });
-    return sorted;
-  }
-
-  // OpenF1 failed — return stale IndexedDB data rather than empty
-  return local?.meetings || [];
-}
-
-// ---------------------------------------------------------------------------
-// Sessions for a meeting.
-// Cache layers: IndexedDB → Supabase → OpenF1
-// ---------------------------------------------------------------------------
-async function loadMeetingSessions(meetingKey) {
-  // 1. IndexedDB
-  const local = await idbGet(`sessions:${meetingKey}`);
-  if (local?.length) return local;
-
-  // 2. OpenF1 — short timeout, sessions list is a small request
-  const sessions = await apiFetch('/sessions', { meeting_key: meetingKey }, 10000);
-  if (sessions.length) {
-    await idbSet(`sessions:${meetingKey}`, sessions);
-  }
-  return sessions;
-}
-
-// ---------------------------------------------------------------------------
-// Full session data (drivers, laps, pit stops, etc.)
-// Cache layers: IndexedDB → Supabase → OpenF1
+// Helpers
 // ---------------------------------------------------------------------------
 function isValidSessionData(d) {
   return d && (Object.keys(d.drivers || {}).length > 0 || (d.laps || []).length > 0);
 }
 
-async function fetchSessionData(sk) {
-  const driversArr  = await apiFetch('/drivers',      { session_key: sk });
-  const laps        = await apiFetch('/laps',         { session_key: sk }, 90000);
-  const positions   = await apiFetch('/position',     { session_key: sk });
-  const pitStops    = await apiFetch('/pit',          { session_key: sk });
-  const weather     = await apiFetch('/weather',      { session_key: sk });
-  const raceControl = await apiFetch('/race_control', { session_key: sk });
-  const radio       = await apiFetch('/team_radio',   { session_key: sk });
-  const stints      = await apiFetch('/stints',       { session_key: sk });
-  const drivers = {};
-  driversArr.forEach(d => { drivers[d.driver_number] = d; });
-  return { drivers, laps, positions, pitStops, weather, raceControl, radio, standings: [], stints };
-}
-
-async function fetchWithCache(sk) {
-  // 1. IndexedDB
+// Load session data: IndexedDB (L1) → Supabase+OpenF1 (L2, via api/index.js)
+async function loadSessionWithCache(sk) {
   const local = await idbGet(`session:${sk}`);
   if (isValidSessionData(local)) return local;
-
-  // 2. Supabase
-  try {
-    const { data: cached } = await supabase
-      .from('session_cache')
-      .select('data')
-      .eq('session_key', String(sk))
-      .single();
-    if (isValidSessionData(cached?.data)) {
-      await idbSet(`session:${sk}`, cached.data);
-      return cached.data;
-    }
-  } catch { /* cache miss */ }
-
-  // 3. OpenF1
-  const result = await fetchSessionData(sk);
-  await idbSet(`session:${sk}`, result);
-  // Fire-and-forget Supabase write — errors silently ignored
-  (async () => {
-    try {
-      await supabase.from('session_cache').upsert({
-        session_key: String(sk),
-        data: result,
-        cached_at: new Date().toISOString(),
-      });
-    } catch { /* ignore */ }
-  })();
+  const result = await getSessionData(sk);
+  if (isValidSessionData(result)) await idbSet(`session:${sk}`, result);
   return result;
 }
 
+// Build enriched meetings list from Jolpica schedule + OpenF1 meetings.
+// Each meeting carries both the OpenF1 meeting_key (for session loading) and
+// the Jolpica round number (for results fetching).
+async function loadEnrichedMeetings(year) {
+  const [schedule, of1Meetings] = await Promise.all([
+    getSchedule(year),
+    getMeetings(year),
+  ]);
+
+  if (schedule?.length) {
+    // Date-proximity match: find the OpenF1 meeting within 7 days of each race
+    const of1Map = {};
+    if (of1Meetings?.length) {
+      for (const race of schedule) {
+        const raceDate = new Date(race.date).getTime();
+        let best = null, bestDiff = Infinity;
+        for (const m of of1Meetings) {
+          const diff = Math.abs(new Date(m.date_start).getTime() - raceDate);
+          if (diff < bestDiff && diff < 7 * 24 * 60 * 60 * 1000) {
+            best = m; bestDiff = diff;
+          }
+        }
+        if (best) of1Map[race.round] = best;
+      }
+    }
+    return schedule.map(race => {
+      const of1m = of1Map[race.round];
+      return {
+        meeting_key:  of1m?.meeting_key || null,
+        round:        Number(race.round),
+        meeting_name: race.raceName,
+        country_name: race.Circuit?.Location?.country || '',
+        date_start:   of1m?.date_start || race.date,
+      };
+    });
+  }
+
+  // Jolpica has no data for this year — fall back to OpenF1 only
+  return (of1Meetings || []).map((m, i) => ({ ...m, round: i + 1 }));
+}
+
 // ---------------------------------------------------------------------------
-// React context
+// Empty shapes
 // ---------------------------------------------------------------------------
 const emptyData = {
   drivers: {}, laps: [], positions: [], pitStops: [],
   weather: [], raceControl: [], radio: [], standings: [], stints: [],
 };
 
+// ---------------------------------------------------------------------------
+// Context
+// ---------------------------------------------------------------------------
 const SessionContext = createContext(null);
 
 export function SessionProvider({ children }) {
-  const [year, setYear] = useState('2026');
-  const [meetings, setMeetings] = useState([]);
-  const [sessions, setSessions] = useState([]);
-  const [meetingKey, setMeetingKey] = useState('');
-  const [sessionKey, setSessionKey] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [loaded, setLoaded] = useState(false);
-  const [data, setData] = useState(emptyData);
+  const [year, setYear]               = useState('2026');
+  const [meetings, setMeetings]       = useState([]);
+  const [sessions, setSessions]       = useState([]);
+  const [meetingKey, setMeetingKey]   = useState('');
+  const [sessionKey, setSessionKey]   = useState('');
+  const [loading, setLoading]         = useState(false);
+  const [loaded, setLoaded]           = useState(false);
+  const [data, setData]               = useState(emptyData);
   const [sessionInfo, setSessionInfo] = useState(null);
-  const [bookmarks, setBookmarks] = useState([]);
+  const [bookmarks, setBookmarks]     = useState([]);
 
-  const sessionsRef = useRef([]);
+  // Jolpica state
+  const [jolpikaRound, setJolpikaRound]             = useState(null);
+  const [raceResults, setRaceResults]               = useState(null);
+  const [raceResultsLoading, setRaceResultsLoading] = useState(false);
+
+  // Refs for use inside useCallback without stale closures
+  const sessionsRef      = useRef([]);
+  const yearRef          = useRef('2026');
+  const jolpikaRoundRef  = useRef(null);
 
   function updateSessions(sess) {
     setSessions(sess);
     sessionsRef.current = sess;
   }
+  function updateYear(y) {
+    setYear(y);
+    yearRef.current = y;
+  }
+  function updateJolpikaRound(r) {
+    setJolpikaRound(r);
+    jolpikaRoundRef.current = r;
+  }
 
+  // ---------------------------------------------------------------------------
+  // Bookmarks
+  // ---------------------------------------------------------------------------
   async function loadBookmarks() {
-    const { data: bm } = await supabase
-      .from('bookmarks')
-      .select('*')
-      .order('created_at', { ascending: false });
-    if (bm) setBookmarks(bm);
+    try {
+      const { data: bm } = await supabase
+        .from('bookmarks')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (bm) setBookmarks(bm);
+    } catch { /* ignore */ }
   }
 
   async function addBookmark(info) {
     const row = {
-      session_key: String(info.session_key),
+      session_key:  String(info.session_key),
       session_name: info.session_name,
       session_type: info.session_type,
       meeting_name: info.meeting_name,
       country_name: info.country_name,
-      year: String(info.year),
+      year:         String(info.year),
     };
-    const { data: bm } = await supabase.from('bookmarks').upsert(row).select();
-    if (bm) setBookmarks(prev => [bm[0], ...prev.filter(b => b.session_key !== row.session_key)]);
+    try {
+      const { data: bm } = await supabase.from('bookmarks').upsert(row).select();
+      if (bm) setBookmarks(prev => [bm[0], ...prev.filter(b => b.session_key !== row.session_key)]);
+    } catch { /* ignore */ }
   }
 
   async function removeBookmark(sk) {
-    await supabase.from('bookmarks').delete().eq('session_key', String(sk));
+    try {
+      await supabase.from('bookmarks').delete().eq('session_key', String(sk));
+    } catch { /* ignore */ }
     setBookmarks(prev => prev.filter(b => b.session_key !== String(sk)));
   }
 
@@ -218,69 +151,102 @@ export function SessionProvider({ children }) {
     return bookmarks.some(b => b.session_key === String(sk));
   }
 
-  // On startup: fetch meetings list only. Sessions load when the user picks a
-  // meeting. Session data loads when the user picks a session. Nothing else.
-  useEffect(() => {
-    loadBookmarks().catch(() => {});
+  // ---------------------------------------------------------------------------
+  // Fetch Jolpica results for a Race/Sprint session
+  // ---------------------------------------------------------------------------
+  async function fetchAndSetRaceResults(sessionType, round, yr) {
+    if (!round || (sessionType !== 'Race' && sessionType !== 'Sprint')) {
+      setRaceResults(null);
+      return;
+    }
+    setRaceResultsLoading(true);
+    try {
+      const results = sessionType === 'Sprint'
+        ? await getSprintResults(yr, round)
+        : await getRaceResults(yr, round);
+      setRaceResults(results);
+    } catch {
+      setRaceResults(null);
+    } finally {
+      setRaceResultsLoading(false);
+    }
+  }
 
-    async function loadMeetings() {
+  // ---------------------------------------------------------------------------
+  // Startup: auto-select most recent past race
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    loadBookmarks();
+
+    async function init() {
       const yearsToTry = ['2026', '2025', '2024'];
       for (const y of yearsToTry) {
-        const meetings = await loadCalendar(y);
-        if (meetings.length) {
-          setYear(y);
-          setMeetings(meetings);
+        const enriched = await loadEnrichedMeetings(y);
+        if (!enriched?.length) continue;
 
-          // Auto-select the most recent past meeting
-          const now = new Date();
-          const pastMeetings = y !== now.getFullYear().toString()
-            ? meetings
-            : meetings.filter(m => new Date(m.date_start) <= now);
-          if (!pastMeetings.length) return;
+        updateYear(y);
+        setMeetings(enriched);
 
-          const lastMeeting = pastMeetings[pastMeetings.length - 1];
-          const mk = String(lastMeeting.meeting_key);
-          setMeetingKey(mk);
+        const now = new Date();
+        const past = y !== now.getFullYear().toString()
+          ? enriched
+          : enriched.filter(m => new Date(m.date_start) <= now);
+        if (!past.length) return;
 
-          const sess = await loadMeetingSessions(mk);
-          updateSessions(sess);
-          if (!sess.length) return;
+        const lastMeeting = past[past.length - 1];
+        const mk = String(lastMeeting.meeting_key || '');
+        setMeetingKey(mk);
+        updateJolpikaRound(lastMeeting.round || null);
 
-          // Auto-select the last session (typically the Race)
-          const lastSession = sess[sess.length - 1];
-          const sk = String(lastSession.session_key);
-          setSessionKey(sk);
-          setSessionInfo(lastSession);
-          setLoading(true);
-          setLoaded(false);
-          try {
-            const result = await fetchWithCache(sk);
-            setData(result);
-            setLoaded(true);
-          } finally {
-            setLoading(false);
-          }
+        if (!mk) return;
+        const sess = await getSessions(mk);
+        updateSessions(sess || []);
+        if (!sess?.length) return;
 
-          return;
+        const lastSession = sess[sess.length - 1];
+        const sk = String(lastSession.session_key);
+        setSessionKey(sk);
+        setSessionInfo(lastSession);
+        setLoading(true);
+        setLoaded(false);
+        try {
+          const result = await loadSessionWithCache(sk);
+          setData(result);
+          setLoaded(true);
+        } finally {
+          setLoading(false);
         }
+
+        // Fetch Jolpica results in the background (non-blocking)
+        fetchAndSetRaceResults(lastSession.session_type, lastMeeting.round, y);
+        return;
       }
     }
 
-    loadMeetings().catch(() => {});
-  }, []);
+    init().catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ---------------------------------------------------------------------------
+  // Year change
+  // ---------------------------------------------------------------------------
   const onYearChange = useCallback(async (y) => {
-    setYear(y);
+    updateYear(y);
     setMeetingKey('');
     updateSessions([]);
     setSessionKey('');
     setLoaded(false);
     setData(emptyData);
     setSessionInfo(null);
-    const m = await loadCalendar(y);
-    setMeetings(m);
+    updateJolpikaRound(null);
+    setRaceResults(null);
+
+    const enriched = await loadEnrichedMeetings(y);
+    setMeetings(enriched || []);
   }, []);
 
+  // ---------------------------------------------------------------------------
+  // Meeting change
+  // ---------------------------------------------------------------------------
   const onMeetingChange = useCallback(async (mk) => {
     setMeetingKey(mk);
     setSessionKey('');
@@ -288,11 +254,36 @@ export function SessionProvider({ children }) {
     setLoaded(false);
     setData(emptyData);
     setSessionInfo(null);
-    if (!mk) return;
-    const sess = await loadMeetingSessions(mk);
-    updateSessions(sess);
+    setRaceResults(null);
+
+    // Find the round for this meeting from the meetings list
+    // (meetings is closed over via a fresh read each time; using a ref to avoid
+    //  stale-closure issues we read the current meetings from state indirectly)
+    if (!mk) { updateJolpikaRound(null); return; }
+
+    // Find the meeting object — we need the round for Jolpica
+    // We can't close over meetings state in useCallback, so we pass it via a ref.
+    // Instead, re-read from the enriched meetings by fetching them lazily from cache.
+    // The round is embedded in the meeting objects stored in state; we resolve it
+    // on the next render via the meetingsRef below.
+    const sess = await getSessions(mk);
+    updateSessions(sess || []);
   }, []);
 
+  // Keep a ref to meetings so onMeetingChange can read the round without stale closure
+  const meetingsRef = useRef([]);
+  useEffect(() => { meetingsRef.current = meetings; }, [meetings]);
+
+  // When meetingKey changes, sync the Jolpica round from meetings state
+  useEffect(() => {
+    if (!meetingKey) { updateJolpikaRound(null); return; }
+    const meeting = meetingsRef.current.find(m => String(m.meeting_key) === String(meetingKey));
+    updateJolpikaRound(meeting?.round || null);
+  }, [meetingKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ---------------------------------------------------------------------------
+  // Session change
+  // ---------------------------------------------------------------------------
   const onSessionChange = useCallback(async (sk) => {
     if (!sk) { setSessionKey(''); return; }
     setSessionKey(sk);
@@ -300,16 +291,20 @@ export function SessionProvider({ children }) {
     setSessionInfo(sess || null);
     setLoading(true);
     setLoaded(false);
+    setRaceResults(null);
     try {
-      const result = await fetchWithCache(sk);
+      const result = await loadSessionWithCache(sk);
       setData(result);
       setLoaded(true);
     } finally {
       setLoading(false);
     }
+    fetchAndSetRaceResults(sess?.session_type, jolpikaRoundRef.current, yearRef.current);
   }, []);
 
-  // Force-refresh from OpenF1, bypassing all caches. Updates both cache layers.
+  // ---------------------------------------------------------------------------
+  // Force reload from OpenF1 (↺ button)
+  // ---------------------------------------------------------------------------
   const loadAll = useCallback(async (sk) => {
     if (!sk) return;
     const sess = sessionsRef.current.find(s => String(s.session_key) === String(sk));
@@ -317,18 +312,8 @@ export function SessionProvider({ children }) {
     setLoading(true);
     setLoaded(false);
     try {
-      const result = await fetchSessionData(sk);
+      const result = await forceRefreshSessionData(sk);
       await idbSet(`session:${sk}`, result);
-      // Fire-and-forget Supabase write — errors silently ignored
-      (async () => {
-        try {
-          await supabase.from('session_cache').upsert({
-            session_key: String(sk),
-            data: result,
-            cached_at: new Date().toISOString(),
-          });
-        } catch { /* ignore */ }
-      })();
       setData(result);
       setLoaded(true);
     } finally {
@@ -336,40 +321,57 @@ export function SessionProvider({ children }) {
     }
   }, []);
 
+  // ---------------------------------------------------------------------------
+  // Load bookmark
+  // ---------------------------------------------------------------------------
   const loadBookmark = useCallback(async (bm) => {
-    setYear(bm.year);
+    updateYear(bm.year);
     setLoaded(false);
     setData(emptyData);
+    setRaceResults(null);
 
-    const mtgs = await loadCalendar(bm.year);
-    setMeetings(mtgs);
+    const enriched = await loadEnrichedMeetings(bm.year);
+    setMeetings(enriched || []);
 
-    // Find which meeting this session belongs to (1 OpenF1 call if not cached)
-    const sess = await apiFetch('/sessions', { session_key: bm.session_key });
-    if (sess.length) {
-      const mk = String(sess[0].meeting_key);
-      setMeetingKey(mk);
-      const allSess = await loadMeetingSessions(mk);
-      updateSessions(allSess);
-    }
+    // Find matching meeting for this session
+    try {
+      const sessArr = await getSessions(''); // will return [] but side-effect finds via session_key below
+      // Resolve meeting_key from OpenF1 directly for the bookmarked session
+      const { apiFetch } = await import('../api/openf1.js');
+      const sessData = await apiFetch('/sessions', { session_key: bm.session_key });
+      if (sessData.length) {
+        const mk = String(sessData[0].meeting_key);
+        setMeetingKey(mk);
+        const allSess = await getSessions(mk);
+        updateSessions(allSess || []);
+
+        const meeting = enriched?.find(m => String(m.meeting_key) === mk);
+        updateJolpikaRound(meeting?.round || null);
+      }
+    } catch { /* ignore */ }
 
     const sk = String(bm.session_key);
     setSessionKey(sk);
     setSessionInfo({ session_name: bm.session_name, session_type: bm.session_type });
     setLoading(true);
     try {
-      const result = await fetchWithCache(sk);
+      const result = await loadSessionWithCache(sk);
       setData(result);
       setLoaded(true);
     } finally {
       setLoading(false);
     }
+    fetchAndSetRaceResults(bm.session_type, jolpikaRoundRef.current, bm.year);
   }, []);
 
+  // ---------------------------------------------------------------------------
+  // Context value
+  // ---------------------------------------------------------------------------
   return (
     <SessionContext.Provider value={{
       year, meetings, sessions, meetingKey, sessionKey,
       loading, loaded, data, sessionInfo,
+      jolpikaRound, raceResults, raceResultsLoading,
       bookmarks, isBookmarked, addBookmark, removeBookmark, loadBookmark,
       onYearChange, onMeetingChange, onSessionChange, loadAll,
     }}>

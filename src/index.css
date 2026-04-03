@@ -18,7 +18,7 @@
   --text3: #4a6278;
   --green: #00ff87;
   --yellow: #f5c842;
-  --soft: #00bfff;
+  --soft: #e8002d;
   --medium: #ffd700;
   --hard: #e8e8e8;
   --inter: #39b54a;
@@ -163,7 +163,7 @@ body::before {
   font-size: 9px;
   font-family: 'Orbitron', sans-serif;
 }
-.SOFT       { background: var(--soft);   color: #000; }
+.SOFT       { background: var(--soft);   color: #fff; }
 .MEDIUM     { background: var(--medium); color: #000; }
 .HARD       { background: #555;          color: var(--hard); }
 .INTERMEDIATE { background: var(--inter); color: #000; }

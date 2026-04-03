@@ -2,16 +2,24 @@ export const TEAM_COLORS = {
   'Red Bull': '#3671C6', 'Mercedes': '#27F4D2', 'Ferrari': '#E8002D',
   'McLaren': '#FF8000', 'Aston Martin': '#229971', 'Alpine': '#0093CC',
   'Williams': '#64C4FF', 'AlphaTauri': '#5E8FAA', 'RB': '#6692FF',
-  'Sauber': '#52E252', 'Haas': '#B6BABD',
+  'Racing Bulls': '#6692FF', 'Sauber': '#52E252', 'Haas': '#B6BABD',
 };
 
+// Look up a team colour by name (partial match, same logic as driverColor)
+export function teamColorByName(name) {
+  if (!name) return '#5577aa';
+  for (const [k, v] of Object.entries(TEAM_COLORS))
+    if (name.includes(k)) return v;
+  return '#5577aa';
+}
+
 export const COMPOUND_COLORS = {
-  SOFT: '#00bfff', MEDIUM: '#ffd700', HARD: '#888888',
+  SOFT: '#e8002d', MEDIUM: '#ffd700', HARD: '#888888',
   INTERMEDIATE: '#39b54a', WET: '#0067ff',
 };
 
 export const COMPOUND_TEXT = {
-  SOFT: '#000', MEDIUM: '#000', HARD: '#fff',
+  SOFT: '#fff', MEDIUM: '#000', HARD: '#fff',
   INTERMEDIATE: '#000', WET: '#fff',
 };
 
