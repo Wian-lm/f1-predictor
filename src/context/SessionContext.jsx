@@ -67,10 +67,13 @@ function isCalendarStale(meetings, fetchedAt) {
 // Cache layers: IndexedDB → Supabase → OpenF1
 // ---------------------------------------------------------------------------
 async function loadCalendar(year) {
+  let fallback = null;
+
   // 1. IndexedDB
   const local = await idbGet(`calendar:${year}`);
-  if (local?.meetings?.length && !isCalendarStale(local.meetings, local.fetchedAt)) {
-    return local.meetings;
+  if (local?.meetings?.length) {
+    if (!isCalendarStale(local.meetings, local.fetchedAt)) return local.meetings;
+    fallback = local.meetings; // stale but usable if OpenF1 fails
   }
 
   // 2. Supabase
@@ -86,11 +89,12 @@ async function loadCalendar(year) {
         await idbSet(`calendar:${year}`, { meetings: cached.data.meetings, fetchedAt });
         return cached.data.meetings;
       }
+      fallback = cached.data.meetings; // stale but usable if OpenF1 fails
     }
   } catch { /* cache miss */ }
 
-  // 3. OpenF1
-  const meetings = await apiFetch('/meetings', { year });
+  // 3. OpenF1 — short timeout, meetings is a small request
+  const meetings = await apiFetch('/meetings', { year }, 10000);
   const sorted = meetings.sort((a, b) => new Date(a.date_start) - new Date(b.date_start));
   if (sorted.length) {
     const entry = { meetings: sorted, fetchedAt: Date.now() };
@@ -100,8 +104,11 @@ async function loadCalendar(year) {
       data: { meetings: sorted },
       cached_at: new Date().toISOString(),
     }).catch(() => {});
+    return sorted;
   }
-  return sorted;
+
+  // OpenF1 failed or returned nothing — use stale cache rather than empty
+  return fallback || [];
 }
 
 // ---------------------------------------------------------------------------
@@ -126,8 +133,8 @@ async function loadMeetingSessions(meetingKey) {
     }
   } catch { /* cache miss */ }
 
-  // 3. OpenF1
-  const sessions = await apiFetch('/sessions', { meeting_key: meetingKey });
+  // 3. OpenF1 — short timeout, sessions list is a small request
+  const sessions = await apiFetch('/sessions', { meeting_key: meetingKey }, 10000);
   if (sessions.length) {
     await idbSet(`sessions:${meetingKey}`, sessions);
     supabase.from('session_cache').upsert({
