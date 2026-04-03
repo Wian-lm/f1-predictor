@@ -146,11 +146,16 @@ async function fetchWithCache(sk) {
   // 3. OpenF1
   const result = await fetchSessionData(sk);
   await idbSet(`session:${sk}`, result);
-  supabase.from('session_cache').upsert({
-    session_key: String(sk),
-    data: result,
-    cached_at: new Date().toISOString(),
-  }).catch(() => {});
+  // Fire-and-forget Supabase write — errors silently ignored
+  (async () => {
+    try {
+      await supabase.from('session_cache').upsert({
+        session_key: String(sk),
+        data: result,
+        cached_at: new Date().toISOString(),
+      });
+    } catch { /* ignore */ }
+  })();
   return result;
 }
 
@@ -213,37 +218,24 @@ export function SessionProvider({ children }) {
     return bookmarks.some(b => b.session_key === String(sk));
   }
 
-  // On startup: populate dropdowns only. No session is auto-selected and no
-  // data endpoints fire — those only trigger when the user picks a session.
+  // On startup: fetch meetings list only. Sessions load when the user picks a
+  // meeting. Session data loads when the user picks a session. Nothing else.
   useEffect(() => {
     loadBookmarks().catch(() => {});
 
-    async function populateDropdowns() {
-      const now = new Date();
+    async function loadMeetings() {
       const yearsToTry = ['2026', '2025', '2024'];
-
-      let meetings = [];
-      let chosenYear = '2026';
       for (const y of yearsToTry) {
-        meetings = await loadCalendar(y);
-        if (meetings.length) { chosenYear = y; break; }
+        const meetings = await loadCalendar(y);
+        if (meetings.length) {
+          setYear(y);
+          setMeetings(meetings);
+          return;
+        }
       }
-
-      setYear(chosenYear);
-      setMeetings(meetings);
-      if (!meetings.length) return;
-
-      // Auto-select the most recent past meeting so sessions are pre-populated
-      const past = meetings.filter(m => new Date(m.date_start) <= now);
-      const latest = past.length ? past[past.length - 1] : meetings[meetings.length - 1];
-      setMeetingKey(String(latest.meeting_key));
-
-      const sess = await loadMeetingSessions(latest.meeting_key);
-      updateSessions(sess);
-      // Stop here — user must select a session to trigger data loading
     }
 
-    populateDropdowns().catch(() => {});
+    loadMeetings().catch(() => {});
   }, []);
 
   const onYearChange = useCallback(async (y) => {
@@ -296,11 +288,16 @@ export function SessionProvider({ children }) {
     try {
       const result = await fetchSessionData(sk);
       await idbSet(`session:${sk}`, result);
-      supabase.from('session_cache').upsert({
-        session_key: String(sk),
-        data: result,
-        cached_at: new Date().toISOString(),
-      }).catch(() => {});
+      // Fire-and-forget Supabase write — errors silently ignored
+      (async () => {
+        try {
+          await supabase.from('session_cache').upsert({
+            session_key: String(sk),
+            data: result,
+            cached_at: new Date().toISOString(),
+          });
+        } catch { /* ignore */ }
+      })();
       setData(result);
       setLoaded(true);
     } finally {
