@@ -67,48 +67,23 @@ function isCalendarStale(meetings, fetchedAt) {
 // Cache layers: IndexedDB → Supabase → OpenF1
 // ---------------------------------------------------------------------------
 async function loadCalendar(year) {
-  let fallback = null;
-
-  // 1. IndexedDB
+  // 1. IndexedDB — check for fresh or stale data
   const local = await idbGet(`calendar:${year}`);
   if (local?.meetings?.length) {
     if (!isCalendarStale(local.meetings, local.fetchedAt)) return local.meetings;
-    fallback = local.meetings; // stale but usable if OpenF1 fails
+    // stale but keep as fallback in case OpenF1 fails below
   }
 
-  // 2. Supabase
-  try {
-    const { data: cached } = await supabase
-      .from('session_cache')
-      .select('data, cached_at')
-      .eq('session_key', `calendar:${year}`)
-      .single();
-    if (cached?.data?.meetings?.length) {
-      const fetchedAt = new Date(cached.cached_at).getTime();
-      if (!isCalendarStale(cached.data.meetings, fetchedAt)) {
-        await idbSet(`calendar:${year}`, { meetings: cached.data.meetings, fetchedAt });
-        return cached.data.meetings;
-      }
-      fallback = cached.data.meetings; // stale but usable if OpenF1 fails
-    }
-  } catch { /* cache miss */ }
-
-  // 3. OpenF1 — short timeout, meetings is a small request
+  // 2. OpenF1 — short timeout, meetings list is a small request
   const meetings = await apiFetch('/meetings', { year }, 10000);
   const sorted = meetings.sort((a, b) => new Date(a.date_start) - new Date(b.date_start));
   if (sorted.length) {
-    const entry = { meetings: sorted, fetchedAt: Date.now() };
-    await idbSet(`calendar:${year}`, entry);
-    supabase.from('session_cache').upsert({
-      session_key: `calendar:${year}`,
-      data: { meetings: sorted },
-      cached_at: new Date().toISOString(),
-    }).catch(() => {});
+    await idbSet(`calendar:${year}`, { meetings: sorted, fetchedAt: Date.now() });
     return sorted;
   }
 
-  // OpenF1 failed or returned nothing — use stale cache rather than empty
-  return fallback || [];
+  // OpenF1 failed — return stale IndexedDB data rather than empty
+  return local?.meetings || [];
 }
 
 // ---------------------------------------------------------------------------
@@ -120,28 +95,10 @@ async function loadMeetingSessions(meetingKey) {
   const local = await idbGet(`sessions:${meetingKey}`);
   if (local?.length) return local;
 
-  // 2. Supabase
-  try {
-    const { data: cached } = await supabase
-      .from('session_cache')
-      .select('data')
-      .eq('session_key', `sessions:${meetingKey}`)
-      .single();
-    if (cached?.data?.sessions?.length) {
-      await idbSet(`sessions:${meetingKey}`, cached.data.sessions);
-      return cached.data.sessions;
-    }
-  } catch { /* cache miss */ }
-
-  // 3. OpenF1 — short timeout, sessions list is a small request
+  // 2. OpenF1 — short timeout, sessions list is a small request
   const sessions = await apiFetch('/sessions', { meeting_key: meetingKey }, 10000);
   if (sessions.length) {
     await idbSet(`sessions:${meetingKey}`, sessions);
-    supabase.from('session_cache').upsert({
-      session_key: `sessions:${meetingKey}`,
-      data: { sessions },
-      cached_at: new Date().toISOString(),
-    }).catch(() => {});
   }
   return sessions;
 }
