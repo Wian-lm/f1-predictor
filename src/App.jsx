@@ -281,7 +281,9 @@ function SessionBar() {
         <span style={slbl}>RACE WEEKEND</span>
         <select style={sel} value={meetingKey} onChange={e => onMeetingChange(e.target.value)}>
           <option value="">— Select weekend —</option>
-          {meetings.map(m => (
+          {meetings
+            .filter(m => year !== new Date().getFullYear().toString() || new Date(m.date_start) <= new Date())
+            .map(m => (
             <option key={m.meeting_key} value={m.meeting_key}>
               {m.country_name} · {m.meeting_name}
             </option>
