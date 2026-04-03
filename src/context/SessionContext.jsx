@@ -1,63 +1,198 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import supabase from '../lib/supabase';
+import { idbGet, idbSet } from '../lib/localCache';
 
 const BASE = 'https://api.openf1.org/v1';
 
-function apiFetch(ep, params = {}, timeoutMs = 20000) {
+// ---------------------------------------------------------------------------
+// OpenF1 fetch — throttled to ≈1.8 req/s with 429 retry/backoff.
+// Only called when all cache layers miss, so rate limits are rarely an issue.
+// ---------------------------------------------------------------------------
+let _nextSlot = 0;
+function reserveSlot() {
+  const now = Date.now();
+  _nextSlot = Math.max(_nextSlot, now) + 550;
+  return _nextSlot - 550 - now;
+}
+
+async function apiFetch(ep, params = {}, timeoutMs = 30000) {
   const u = new URL(BASE + ep);
   Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, v));
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  return fetch(u.toString(), { signal: controller.signal })
-    .then(r => { clearTimeout(timer); return r.ok ? r.json() : []; })
-    .catch(() => { clearTimeout(timer); return []; });
+  const maxRetries = 4;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const wait = reserveSlot();
+    if (wait > 0) await new Promise(r => setTimeout(r, wait));
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const r = await fetch(u.toString(), { signal: controller.signal });
+      clearTimeout(timer);
+      if (r.status === 429) {
+        const retryAfter = parseInt(r.headers.get('Retry-After') || '0') * 1000;
+        const backoff = Math.max(retryAfter, 2000 * Math.pow(2, attempt));
+        if (attempt < maxRetries - 1) { await new Promise(res => setTimeout(res, backoff)); continue; }
+        return [];
+      }
+      return r.ok ? await r.json() : [];
+    } catch {
+      clearTimeout(timer);
+      if (attempt < maxRetries - 1) await new Promise(res => setTimeout(res, 1000 * (attempt + 1)));
+    }
+  }
+  return [];
+}
+
+// ---------------------------------------------------------------------------
+// Calendar staleness logic.
+// If the next race is more than 7 days away, nothing can have changed — keep
+// the cache. During race week (≤7 days) refresh at most once every 6 hours.
+// After the final race of the season, refresh at most once per day.
+// ---------------------------------------------------------------------------
+function isCalendarStale(meetings, fetchedAt) {
+  const now = Date.now();
+  const age = now - fetchedAt;
+  const futureDates = meetings
+    .map(m => new Date(m.date_start).getTime())
+    .filter(t => t > now)
+    .sort((a, b) => a - b);
+
+  if (!futureDates.length) return age > 24 * 60 * 60 * 1000; // end of season — daily
+  const daysToNext = (futureDates[0] - now) / (1000 * 60 * 60 * 24);
+  if (daysToNext > 7) return false;            // no race this week — never stale
+  return age > 6 * 60 * 60 * 1000;            // race week — refresh every 6 h
+}
+
+// ---------------------------------------------------------------------------
+// Calendar: meetings list for a year.
+// Cache layers: IndexedDB → Supabase → OpenF1
+// ---------------------------------------------------------------------------
+async function loadCalendar(year) {
+  // 1. IndexedDB
+  const local = await idbGet(`calendar:${year}`);
+  if (local?.meetings?.length && !isCalendarStale(local.meetings, local.fetchedAt)) {
+    return local.meetings;
+  }
+
+  // 2. Supabase
+  try {
+    const { data: cached } = await supabase
+      .from('session_cache')
+      .select('data, cached_at')
+      .eq('session_key', `calendar:${year}`)
+      .single();
+    if (cached?.data?.meetings?.length) {
+      const fetchedAt = new Date(cached.cached_at).getTime();
+      if (!isCalendarStale(cached.data.meetings, fetchedAt)) {
+        await idbSet(`calendar:${year}`, { meetings: cached.data.meetings, fetchedAt });
+        return cached.data.meetings;
+      }
+    }
+  } catch { /* cache miss */ }
+
+  // 3. OpenF1
+  const meetings = await apiFetch('/meetings', { year });
+  const sorted = meetings.sort((a, b) => new Date(a.date_start) - new Date(b.date_start));
+  if (sorted.length) {
+    const entry = { meetings: sorted, fetchedAt: Date.now() };
+    await idbSet(`calendar:${year}`, entry);
+    supabase.from('session_cache').upsert({
+      session_key: `calendar:${year}`,
+      data: { meetings: sorted },
+      cached_at: new Date().toISOString(),
+    }).catch(() => {});
+  }
+  return sorted;
+}
+
+// ---------------------------------------------------------------------------
+// Sessions for a meeting.
+// Cache layers: IndexedDB → Supabase → OpenF1
+// ---------------------------------------------------------------------------
+async function loadMeetingSessions(meetingKey) {
+  // 1. IndexedDB
+  const local = await idbGet(`sessions:${meetingKey}`);
+  if (local?.length) return local;
+
+  // 2. Supabase
+  try {
+    const { data: cached } = await supabase
+      .from('session_cache')
+      .select('data')
+      .eq('session_key', `sessions:${meetingKey}`)
+      .single();
+    if (cached?.data?.sessions?.length) {
+      await idbSet(`sessions:${meetingKey}`, cached.data.sessions);
+      return cached.data.sessions;
+    }
+  } catch { /* cache miss */ }
+
+  // 3. OpenF1
+  const sessions = await apiFetch('/sessions', { meeting_key: meetingKey });
+  if (sessions.length) {
+    await idbSet(`sessions:${meetingKey}`, sessions);
+    supabase.from('session_cache').upsert({
+      session_key: `sessions:${meetingKey}`,
+      data: { sessions },
+      cached_at: new Date().toISOString(),
+    }).catch(() => {});
+  }
+  return sessions;
+}
+
+// ---------------------------------------------------------------------------
+// Full session data (drivers, laps, pit stops, etc.)
+// Cache layers: IndexedDB → Supabase → OpenF1
+// ---------------------------------------------------------------------------
+function isValidSessionData(d) {
+  return d && (Object.keys(d.drivers || {}).length > 0 || (d.laps || []).length > 0);
 }
 
 async function fetchSessionData(sk) {
-  const [driversArr, laps, positions, pitStops, weather, raceControl, radio, stints] = await Promise.all([
-    apiFetch('/drivers',      { session_key: sk }),
-    apiFetch('/laps',         { session_key: sk }, 60000), // laps can be large — longer timeout
-    apiFetch('/position',     { session_key: sk }),
-    apiFetch('/pit',          { session_key: sk }),
-    apiFetch('/weather',      { session_key: sk }),
-    apiFetch('/race_control', { session_key: sk }),
-    apiFetch('/team_radio',   { session_key: sk }),
-    apiFetch('/stints',       { session_key: sk }),
-  ]);
+  const driversArr  = await apiFetch('/drivers',      { session_key: sk });
+  const laps        = await apiFetch('/laps',         { session_key: sk }, 90000);
+  const positions   = await apiFetch('/position',     { session_key: sk });
+  const pitStops    = await apiFetch('/pit',          { session_key: sk });
+  const weather     = await apiFetch('/weather',      { session_key: sk });
+  const raceControl = await apiFetch('/race_control', { session_key: sk });
+  const radio       = await apiFetch('/team_radio',   { session_key: sk });
+  const stints      = await apiFetch('/stints',       { session_key: sk });
   const drivers = {};
   driversArr.forEach(d => { drivers[d.driver_number] = d; });
   return { drivers, laps, positions, pitStops, weather, raceControl, radio, standings: [], stints };
 }
 
-// Returns cached data if valid, otherwise fetches from OpenF1 and caches in background
 async function fetchWithCache(sk) {
+  // 1. IndexedDB
+  const local = await idbGet(`session:${sk}`);
+  if (isValidSessionData(local)) return local;
+
+  // 2. Supabase
   try {
     const { data: cached } = await supabase
       .from('session_cache')
       .select('data')
       .eq('session_key', String(sk))
       .single();
-
-    if (cached?.data && (
-      Object.keys(cached.data.drivers || {}).length > 0 ||
-      (cached.data.laps || []).length > 0
-    )) {
+    if (isValidSessionData(cached?.data)) {
+      await idbSet(`session:${sk}`, cached.data);
       return cached.data;
     }
-  } catch (_) { /* cache miss — fall through to API */ }
+  } catch { /* cache miss */ }
 
+  // 3. OpenF1
   const result = await fetchSessionData(sk);
-
-  // Write cache in background — never block on it
+  await idbSet(`session:${sk}`, result);
   supabase.from('session_cache').upsert({
     session_key: String(sk),
     data: result,
     cached_at: new Date().toISOString(),
   }).catch(() => {});
-
   return result;
 }
 
+// ---------------------------------------------------------------------------
+// React context
+// ---------------------------------------------------------------------------
 const emptyData = {
   drivers: {}, laps: [], positions: [], pitStops: [],
   weather: [], raceControl: [], radio: [], standings: [], stints: [],
@@ -114,7 +249,7 @@ export function SessionProvider({ children }) {
     return bookmarks.some(b => b.session_key === String(sk));
   }
 
-  // Auto-load most recent past race on startup
+  // Auto-load most recent completed race on startup
   useEffect(() => {
     loadBookmarks().catch(() => {});
 
@@ -125,8 +260,7 @@ export function SessionProvider({ children }) {
       let sorted = [];
       let chosenYear = '2026';
       for (const y of yearsToTry) {
-        const mtgs = await apiFetch('/meetings', { year: y });
-        sorted = mtgs.sort((a, b) => new Date(a.date_start) - new Date(b.date_start));
+        sorted = await loadCalendar(y);
         if (sorted.length) { chosenYear = y; break; }
       }
 
@@ -138,7 +272,7 @@ export function SessionProvider({ children }) {
       const latest = past.length ? past[past.length - 1] : sorted[sorted.length - 1];
       setMeetingKey(String(latest.meeting_key));
 
-      const sess = await apiFetch('/sessions', { meeting_key: latest.meeting_key });
+      const sess = await loadMeetingSessions(latest.meeting_key);
       updateSessions(sess);
       if (!sess.length) return;
 
@@ -168,8 +302,8 @@ export function SessionProvider({ children }) {
     setLoaded(false);
     setData(emptyData);
     setSessionInfo(null);
-    const m = await apiFetch('/meetings', { year: y });
-    setMeetings(m.sort((a, b) => new Date(a.date_start) - new Date(b.date_start)));
+    const m = await loadCalendar(y);
+    setMeetings(m);
   }, []);
 
   const onMeetingChange = useCallback(async (mk) => {
@@ -180,7 +314,7 @@ export function SessionProvider({ children }) {
     setData(emptyData);
     setSessionInfo(null);
     if (!mk) return;
-    const sess = await apiFetch('/sessions', { meeting_key: mk });
+    const sess = await loadMeetingSessions(mk);
     updateSessions(sess);
   }, []);
 
@@ -200,6 +334,7 @@ export function SessionProvider({ children }) {
     }
   }, []);
 
+  // Force-refresh from OpenF1, bypassing all caches. Updates both cache layers.
   const loadAll = useCallback(async (sk) => {
     if (!sk) return;
     const sess = sessionsRef.current.find(s => String(s.session_key) === String(sk));
@@ -208,6 +343,7 @@ export function SessionProvider({ children }) {
     setLoaded(false);
     try {
       const result = await fetchSessionData(sk);
+      await idbSet(`session:${sk}`, result);
       supabase.from('session_cache').upsert({
         session_key: String(sk),
         data: result,
@@ -225,13 +361,15 @@ export function SessionProvider({ children }) {
     setLoaded(false);
     setData(emptyData);
 
-    const mtgs = await apiFetch('/meetings', { year: bm.year });
-    setMeetings(mtgs.sort((a, b) => new Date(a.date_start) - new Date(b.date_start)));
+    const mtgs = await loadCalendar(bm.year);
+    setMeetings(mtgs);
 
+    // Find which meeting this session belongs to (1 OpenF1 call if not cached)
     const sess = await apiFetch('/sessions', { session_key: bm.session_key });
     if (sess.length) {
-      setMeetingKey(String(sess[0].meeting_key));
-      const allSess = await apiFetch('/sessions', { meeting_key: sess[0].meeting_key });
+      const mk = String(sess[0].meeting_key);
+      setMeetingKey(mk);
+      const allSess = await loadMeetingSessions(mk);
       updateSessions(allSess);
     }
 

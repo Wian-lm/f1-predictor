@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
 import { SessionProvider, useSession } from './context/SessionContext';
 import Dashboard from './pages/Dashboard';
@@ -11,6 +11,140 @@ import RaceControl from './pages/RaceControl';
 import TeamRadio from './pages/TeamRadio';
 import ChampionshipStandings from './pages/ChampionshipStandings';
 import PredictionModel from './pages/PredictionModel';
+
+const VISITED_KEY = 'f1pw_visited';
+
+const features = [
+  { icon: '🏠', title: 'OVERVIEW',      desc: 'Live standings, fastest lap, weather and pit stop summary for any session.' },
+  { icon: '⏱',  title: 'LAP TIMING',    desc: 'Per-driver lap time charts. Spot undercuts, traffic, and degradation trends.' },
+  { icon: '🏁', title: 'POSITIONS',     desc: 'Position changes throughout a race, from lights out to chequered flag.' },
+  { icon: '🔧', title: 'PIT STOPS',     desc: 'Pit stop timing and tyre change data for every driver.' },
+  { icon: '🌦', title: 'WEATHER',       desc: 'Track and air temperature, humidity, wind, and rainfall throughout a session.' },
+  { icon: '🚩', title: 'RACE CONTROL',  desc: 'Safety car periods, yellow and red flags, penalties and DRS status.' },
+  { icon: '📻', title: 'TEAM RADIO',    desc: 'Timestamped radio messages between drivers and their engineers.' },
+  { icon: '🏆', title: 'STANDINGS',     desc: 'Driver and constructor championship standings for the selected season.' },
+  { icon: '🏎', title: 'TYRE STRATEGY', desc: 'Stint lengths and compound choices visualised for every driver.' },
+  { icon: '🤖', title: 'PREDICTION',    desc: 'Model that scores drivers on lap consistency, tyre deg, and pit timing.' },
+];
+
+function WelcomeModal({ onDismiss }) {
+  const { loading, loaded } = useSession();
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 1000,
+      background: 'rgba(8,10,14,0.92)', backdropFilter: 'blur(8px)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: '20px', animation: 'fadeIn 0.3s ease',
+    }}>
+      <div style={{
+        background: 'var(--surface)', border: '1px solid var(--border2)',
+        borderRadius: 6, width: '100%', maxWidth: 680,
+        maxHeight: '90vh', overflowY: 'auto',
+        boxShadow: '0 0 60px rgba(232,0,45,0.12)',
+      }}>
+        {/* Header */}
+        <div style={{
+          padding: '24px 28px 20px', borderBottom: '1px solid var(--border)',
+          background: 'var(--surface2)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+            <span style={{ fontSize: 28, color: 'var(--accent)' }}>⬡</span>
+            <div>
+              <div style={{
+                fontFamily: "'Orbitron', sans-serif", fontWeight: 900,
+                fontSize: 20, letterSpacing: '0.15em', color: '#fff',
+              }}>
+                PIT WALL
+              </div>
+              <div style={{
+                fontFamily: "'IBM Plex Mono', monospace", fontSize: 9,
+                color: 'var(--text3)', letterSpacing: '0.2em', marginTop: 2,
+              }}>
+                F1 RACE DATA ANALYSER · POWERED BY OPENF1
+              </div>
+            </div>
+          </div>
+          <p style={{
+            fontFamily: "'IBM Plex Mono', monospace", fontSize: 11,
+            color: 'var(--text2)', lineHeight: 1.7, letterSpacing: '0.04em',
+          }}>
+            Explore lap times, tyre strategies, pit stop data, and race positions
+            for every session going back to 2023. Use the selectors at the top to
+            pick a season, race weekend, and session.
+          </p>
+        </div>
+
+        {/* Features grid */}
+        <div style={{ padding: '20px 28px' }}>
+          <div style={{
+            fontFamily: "'Orbitron', sans-serif", fontSize: 8, fontWeight: 700,
+            letterSpacing: '0.2em', color: 'var(--text3)', marginBottom: 14,
+          }}>
+            WHAT'S INSIDE
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            {features.map(f => (
+              <div key={f.title} style={{
+                background: 'var(--surface2)', border: '1px solid var(--border)',
+                borderRadius: 4, padding: '10px 12px', display: 'flex', gap: 10,
+              }}>
+                <span style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}>{f.icon}</span>
+                <div>
+                  <div style={{
+                    fontFamily: "'Orbitron', sans-serif", fontSize: 8, fontWeight: 700,
+                    letterSpacing: '0.12em', color: 'var(--text2)', marginBottom: 4,
+                  }}>
+                    {f.title}
+                  </div>
+                  <div style={{
+                    fontFamily: "'IBM Plex Mono', monospace", fontSize: 9.5,
+                    color: 'var(--text3)', lineHeight: 1.6,
+                  }}>
+                    {f.desc}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div style={{
+          padding: '16px 28px 24px', borderTop: '1px solid var(--border)',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16,
+        }}>
+          <div style={{
+            fontFamily: "'IBM Plex Mono', monospace", fontSize: 9,
+            color: loading ? 'var(--accent3)' : loaded ? 'var(--green)' : 'var(--text3)',
+            letterSpacing: '0.1em', display: 'flex', alignItems: 'center', gap: 8,
+          }}>
+            <div style={{
+              width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+              background: loading ? 'var(--accent3)' : loaded ? 'var(--green)' : 'var(--text3)',
+              animation: loading ? 'pulse 1s infinite' : 'none',
+            }} />
+            {loading && 'LOADING LATEST RACE DATA IN THE BACKGROUND...'}
+            {loaded  && 'RACE DATA READY'}
+            {!loading && !loaded && 'DATA WILL LOAD WHEN YOU ENTER'}
+          </div>
+          <button
+            onClick={onDismiss}
+            style={{
+              padding: '9px 28px', flexShrink: 0,
+              background: 'var(--accent)', color: '#fff', border: 'none',
+              borderRadius: 3, cursor: 'pointer',
+              fontFamily: "'Orbitron', sans-serif", fontSize: 9,
+              fontWeight: 700, letterSpacing: '0.15em',
+            }}
+          >
+            ENTER PIT WALL
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const navItems = [
   { to: '/',              label: '🏠 OVERVIEW'     },
@@ -232,8 +366,18 @@ function SessionBar() {
 }
 
 function Layout() {
+  const [showWelcome, setShowWelcome] = useState(
+    () => !localStorage.getItem(VISITED_KEY)
+  );
+
+  function dismissWelcome() {
+    localStorage.setItem(VISITED_KEY, '1');
+    setShowWelcome(false);
+  }
+
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--text)', position: 'relative', zIndex: 1 }}>
+      {showWelcome && <WelcomeModal onDismiss={dismissWelcome} />}
       <header style={{
         position: 'sticky', top: 0, zIndex: 100,
         background: 'rgba(8,10,14,0.97)', backdropFilter: 'blur(20px)',
