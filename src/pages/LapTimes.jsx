@@ -26,7 +26,7 @@ export default function LapTimes() {
   const { loaded, loading, data } = useSession();
   const { drivers, laps } = data;
   const [drvFilter, setDrvFilter] = useState('');
-  const [sortBy, setSortBy] = useState('lap');
+  const [sortBy, setSortBy] = useState('time');
 
   const driverList = useMemo(() => [...new Set(laps.map(l => l.driver_number))].sort((a, b) => a - b), [laps]);
 
