@@ -1,3 +1,4 @@
+import { useNavigate } from 'react-router-dom';
 import { useSession } from '../context/SessionContext';
 import { driverColor, fmtTime, fmtTs } from '../utils';
 
@@ -21,11 +22,32 @@ function StatCard({ label, value, sub, valueStyle }) {
 }
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const { loaded, loading, data } = useSession();
   const { drivers, laps, pitStops, weather, positions } = data;
 
   if (loading) return <Empty icon="⟳" text="FETCHING FROM OPENF1..." />;
-  if (!loaded) return <Empty icon="🏎️" text="SELECT A SESSION ABOVE TO LOAD DATA" />;
+  if (!loaded) return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
+        <button
+          onClick={() => navigate('/archive')}
+          style={{
+            background: 'var(--surface2)', border: '1px solid var(--border2)',
+            color: 'var(--text3)', borderRadius: 3, padding: '6px 16px',
+            fontFamily: "'Orbitron', sans-serif", fontSize: 8.5,
+            fontWeight: 700, letterSpacing: '0.12em', cursor: 'pointer',
+            transition: 'color .2s, border-color .2s',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = 'var(--text2)'; }}
+          onMouseLeave={e => { e.currentTarget.style.color = 'var(--text3)'; e.currentTarget.style.borderColor = 'var(--border2)'; }}
+        >
+          📁 ARCHIVE
+        </button>
+      </div>
+      <Empty icon="🏎️" text="SELECT A SESSION ABOVE TO LOAD DATA" />
+    </div>
+  );
 
   const fastestLap = laps.reduce((b, l) => l.lap_duration && (!b || l.lap_duration < b.lap_duration) ? l : b, null);
   const lastWx = weather[weather.length - 1];
@@ -42,6 +64,24 @@ export default function Dashboard() {
 
   return (
     <div>
+      {/* Archive button */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
+        <button
+          onClick={() => navigate('/archive')}
+          style={{
+            background: 'var(--surface2)', border: '1px solid var(--border2)',
+            color: 'var(--text3)', borderRadius: 3, padding: '6px 16px',
+            fontFamily: "'Orbitron', sans-serif", fontSize: 8.5,
+            fontWeight: 700, letterSpacing: '0.12em', cursor: 'pointer',
+            transition: 'color .2s, border-color .2s',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = 'var(--text2)'; }}
+          onMouseLeave={e => { e.currentTarget.style.color = 'var(--text3)'; e.currentTarget.style.borderColor = 'var(--border2)'; }}
+        >
+          📁 ARCHIVE
+        </button>
+      </div>
+
       {/* STAT CARDS */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 14 }}>
         <StatCard

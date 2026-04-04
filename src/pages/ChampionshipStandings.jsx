@@ -29,7 +29,7 @@ function PosBadge({ pos, text }) {
   );
 }
 
-function StatusBadge({ status }) {
+function StatusBadge({ status, detail }) {
   const colours = {
     DNF: { bg: 'rgba(232,0,45,0.18)', border: 'var(--accent)', color: 'var(--accent)' },
     DNS: { bg: 'rgba(100,100,100,0.18)', border: 'var(--text3)', color: 'var(--text3)' },
@@ -37,13 +37,23 @@ function StatusBadge({ status }) {
   };
   const c = colours[status] || {};
   return (
-    <span style={{
-      fontFamily: "'Orbitron', sans-serif", fontSize: 8, fontWeight: 700,
-      padding: '2px 5px', borderRadius: 2, border: `1px solid ${c.border}`,
-      background: c.bg, color: c.color, letterSpacing: '0.08em',
-    }}>
-      {status}
-    </span>
+    <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start', gap: 3 }}>
+      <span style={{
+        fontFamily: "'Orbitron', sans-serif", fontSize: 8, fontWeight: 700,
+        padding: '2px 5px', borderRadius: 2, border: `1px solid ${c.border}`,
+        background: c.bg, color: c.color, letterSpacing: '0.08em',
+      }}>
+        {status}
+      </span>
+      {detail && (
+        <span style={{
+          fontFamily: "'IBM Plex Mono', monospace", fontSize: 8,
+          color: 'var(--text3)', letterSpacing: '0.04em',
+        }}>
+          {detail}
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -105,7 +115,6 @@ export default function Results() {
                 <th>DRIVER</th>
                 <th>TEAM</th>
                 <th>TIME / GAP</th>
-                <th>REASON</th>
                 <th>LAPS</th>
                 <th>PTS</th>
                 <th>GRID</th>
@@ -123,7 +132,7 @@ export default function Results() {
                 // Time/gap cell
                 let timeDisplay;
                 if (isDNS || isDNF || isDSQ) {
-                  timeDisplay = <StatusBadge status={r.status} />;
+                  timeDisplay = <StatusBadge status={r.status} detail={isDNF || isDSQ ? r.statusDetail : null} />;
                 } else if (r.statusDetail) {
                   // Lapped car: statusDetail = "+1 Lap"
                   timeDisplay = (
@@ -156,9 +165,6 @@ export default function Results() {
                     </td>
                     <td style={{ color: teamCol, fontSize: 10 }}>{r.team}</td>
                     <td>{timeDisplay}</td>
-                    <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: 'var(--text3)' }}>
-                      {(isDNF || isDSQ) && r.statusDetail ? r.statusDetail : '—'}
-                    </td>
                     <td style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10 }}>
                       {r.laps > 0 ? r.laps : <span style={{ color: 'var(--text3)' }}>—</span>}
                     </td>

@@ -41,3 +41,25 @@ export async function fetchConstructorStandings(year, round = null) {
   const data = await jFetch(path);
   return data?.MRData?.StandingsTable?.StandingsLists?.[0] || null;
 }
+
+export async function fetchArchiveLapTimes(year, round) {
+  const limit = 1000;
+  const first = await jFetch(`/${year}/${round}/laps.json?limit=${limit}&offset=0`);
+  if (!first) return null;
+  const total = Number(first?.MRData?.total || 0);
+  const firstLaps = first?.MRData?.RaceTable?.Races?.[0]?.Laps || [];
+  if (!firstLaps.length) return null;
+  if (total <= limit) return firstLaps;
+  const extra = await Promise.all(
+    Array.from({ length: Math.ceil(total / limit) - 1 }, (_, i) =>
+      jFetch(`/${year}/${round}/laps.json?limit=${limit}&offset=${(i + 1) * limit}`)
+        .then(d => d?.MRData?.RaceTable?.Races?.[0]?.Laps || [])
+    )
+  );
+  return [...firstLaps, ...extra.flat()];
+}
+
+export async function fetchArchivePitStops(year, round) {
+  const data = await jFetch(`/${year}/${round}/pitstops.json?limit=200`);
+  return data?.MRData?.RaceTable?.Races?.[0]?.PitStops || null;
+}

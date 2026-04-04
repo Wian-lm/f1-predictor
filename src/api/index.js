@@ -149,37 +149,52 @@ function normaliseResults(raw) {
     circuitId: raw.Circuit?.circuitId || '',
     country:  raw.Circuit?.Location?.country || '',
     date:     raw.date,
-    results:  (raw.Results || raw.SprintResults || []).map(r => {
-      const rawStatus = r.status || '';
-      const isLapped   = /^\+\d+\s+Lap/i.test(rawStatus);
-      const isFinished = rawStatus === 'Finished' || isLapped;
-      const isDNS      = rawStatus === 'Did Not Start' || Number(r.grid) === 0;
-      const isDSQ      = /disqualif|excluded/i.test(rawStatus);
+    results: (() => {
+      const rows = raw.Results || raw.SprintResults || [];
+      // Winner's lap count — used to compute lap gaps for "Lapped" status strings
+      const winnerLaps = Number(rows.find(r => r.positionText === '1')?.laps || 0);
 
-      let status, statusDetail;
-      if      (isDNS)      { status = 'DNS'; statusDetail = ''; }
-      else if (isDSQ)      { status = 'DSQ'; statusDetail = ''; }
-      else if (isLapped)   { status = 'Finished'; statusDetail = rawStatus; }
-      else if (isFinished) { status = 'Finished'; statusDetail = ''; }
-      else                 { status = 'DNF'; statusDetail = rawStatus; }
+      return rows.map(r => {
+        const rawStatus  = r.status || '';
+        // Jolpica uses "+1 Lap" / "+2 Laps" in most seasons,
+        // but returns "Lapped" (no count) in some recent races.
+        const isLapped   = /^\+\d+/.test(rawStatus) || /^lapped$/i.test(rawStatus);
+        const isFinished = rawStatus === 'Finished' || isLapped;
+        const isDNS      = rawStatus === 'Did Not Start' || Number(r.grid) === 0;
+        const isDSQ      = /disqualif|excluded/i.test(rawStatus);
 
-      return {
-        position:     Number(r.position),
-        positionText: r.positionText,
-        driver:       `${r.Driver.givenName} ${r.Driver.familyName}`,
-        driverCode:   r.Driver.code,
-        driverId:     r.Driver.driverId,
-        team:         r.Constructor.name,
-        teamId:       r.Constructor.constructorId,
-        grid:         Number(r.grid),
-        laps:         Number(r.laps),
-        status,
-        statusDetail,
-        time:         r.Time?.time || null,
-        points:       Number(r.points),
-        fastestLap:   r.FastestLap?.rank === '1',
-      };
-    }),
+        // For "Lapped" (no count), derive the lap difference from completed laps
+        let lappedDetail = rawStatus;
+        if (/^lapped$/i.test(rawStatus)) {
+          const diff = winnerLaps - Number(r.laps || 0);
+          lappedDetail = diff > 0 ? `+${diff} Lap${diff > 1 ? 's' : ''}` : 'Lapped';
+        }
+
+        let status, statusDetail;
+        if      (isDNS)      { status = 'DNS'; statusDetail = ''; }
+        else if (isDSQ)      { status = 'DSQ'; statusDetail = ''; }
+        else if (isLapped)   { status = 'Finished'; statusDetail = lappedDetail; }
+        else if (isFinished) { status = 'Finished'; statusDetail = ''; }
+        else                 { status = 'DNF'; statusDetail = rawStatus; }
+
+        return {
+          position:     Number(r.position),
+          positionText: r.positionText,
+          driver:       `${r.Driver.givenName} ${r.Driver.familyName}`,
+          driverCode:   r.Driver.code,
+          driverId:     r.Driver.driverId,
+          team:         r.Constructor.name,
+          teamId:       r.Constructor.constructorId,
+          grid:         Number(r.grid),
+          laps:         Number(r.laps),
+          status,
+          statusDetail,
+          time:         r.Time?.time || null,
+          points:       Number(r.points),
+          fastestLap:   r.FastestLap?.rank === '1',
+        };
+      });
+    })(),
   };
 }
 
@@ -251,6 +266,75 @@ export async function getConstructorStandings(year, round = null) {
     : `jolpica:constructorstandings:${year}`;
   const raw = await withCache(key, TTL.jolpica, () => jolpica.fetchConstructorStandings(year, round));
   return normaliseConstructorStandings(raw);
+}
+
+// ---------------------------------------------------------------------------
+// Qualifying results — Jolpica, cached 24 h, normalised
+// ---------------------------------------------------------------------------
+function normaliseQualifying(raw) {
+  if (!raw) return null;
+  return {
+    round:    Number(raw.round),
+    season:   Number(raw.season),
+    raceName: raw.raceName,
+    results:  (raw.QualifyingResults || []).map(r => ({
+      position:   Number(r.position),
+      driver:     `${r.Driver.givenName} ${r.Driver.familyName}`,
+      driverCode: r.Driver.code || r.Driver.familyName?.slice(0, 3).toUpperCase() || '',
+      driverId:   r.Driver.driverId,
+      team:       r.Constructor?.name || '',
+      teamId:     r.Constructor?.constructorId || '',
+      q1:         r.Q1 || null,
+      q2:         r.Q2 || null,
+      q3:         r.Q3 || null,
+    })),
+  };
+}
+
+export async function getQualifyingResults(year, round) {
+  const raw = await withCache(
+    `jolpica:qualifying:${year}:${round}`,
+    TTL.jolpica,
+    () => jolpica.fetchQualifying(year, round)
+  );
+  return normaliseQualifying(raw);
+}
+
+// ---------------------------------------------------------------------------
+// Archive lap times — raw Jolpica laps array, cached 24 h
+// (heavy: caller renders a chart; component handles lazy loading)
+// ---------------------------------------------------------------------------
+export async function getArchiveLapTimes(year, round) {
+  return withCache(
+    `jolpica:laps:${year}:${round}`,
+    TTL.jolpica,
+    () => jolpica.fetchArchiveLapTimes(year, round)
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Archive pit stops — Jolpica, cached 24 h, normalised
+// ---------------------------------------------------------------------------
+function normalisePitStops(raw) {
+  if (!raw?.length) return null;
+  return raw
+    .map(p => ({
+      driverId: p.driverId,
+      stop:     Number(p.stop),
+      lap:      Number(p.lap),
+      time:     p.time,
+      duration: p.duration,
+    }))
+    .sort((a, b) => a.lap - b.lap || a.stop - b.stop);
+}
+
+export async function getArchivePitStops(year, round) {
+  const raw = await withCache(
+    `jolpica:pitstops:${year}:${round}`,
+    TTL.jolpica,
+    () => jolpica.fetchArchivePitStops(year, round)
+  );
+  return normalisePitStops(raw);
 }
 
 // ---------------------------------------------------------------------------

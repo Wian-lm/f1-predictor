@@ -120,7 +120,7 @@ export default function Standings() {
                     borderBottom: '1px solid var(--border)',
                   }}>
                     {['POS', 'DRIVER', 'POINTS', 'WINS', 'GAP', 'LAST 3'].map(h => (
-                      <div key={h} style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 7.5, color: 'var(--text3)', letterSpacing: '0.1em', textAlign: h === 'POS' ? 'left' : 'right' }}>
+                      <div key={h} style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 7.5, color: 'var(--text3)', letterSpacing: '0.1em', textAlign: h === 'POS' || h === 'DRIVER' ? 'left' : 'right' }}>
                         {h}
                       </div>
                     ))}
@@ -207,7 +207,7 @@ export default function Standings() {
                     borderBottom: '1px solid var(--border)',
                   }}>
                     {['POS', 'CONSTRUCTOR', 'POINTS', 'WINS', 'GAP'].map(h => (
-                      <div key={h} style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 7.5, color: 'var(--text3)', letterSpacing: '0.1em', textAlign: h === 'POS' ? 'left' : 'right' }}>
+                      <div key={h} style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 7.5, color: 'var(--text3)', letterSpacing: '0.1em', textAlign: h === 'POS' || h === 'CONSTRUCTOR' ? 'left' : 'right' }}>
                         {h}
                       </div>
                     ))}

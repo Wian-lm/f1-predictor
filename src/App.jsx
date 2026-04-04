@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, NavLink, useLocation } from 'react-router-dom';
 import { SessionProvider, useSession } from './context/SessionContext';
 import Dashboard from './pages/Dashboard';
 import LapTimes from './pages/LapTimes';
@@ -11,6 +11,8 @@ import TeamRadio from './pages/TeamRadio';
 import ChampionshipStandings from './pages/ChampionshipStandings';
 import Standings from './pages/Standings';
 import PredictionModel from './pages/PredictionModel';
+import EraSelector from './pages/EraSelector';
+import ArchiveDashboard from './pages/ArchiveDashboard';
 
 const VISITED_KEY = 'f1pw_visited';
 
@@ -157,6 +159,7 @@ const navItems = [
   { to: '/race-control',  label: '🚩 RACE CONTROL'  },
   { to: '/team-radio',    label: '📻 TEAM RADIO'    },
   { to: '/prediction',    label: '🤖 PREDICTION'    },
+  { to: '/archive',       label: '📁 ARCHIVE'       },
 ];
 
 const sel = {
@@ -371,6 +374,8 @@ function Layout() {
   const [showWelcome, setShowWelcome] = useState(
     () => !localStorage.getItem(VISITED_KEY)
   );
+  const location = useLocation();
+  const isArchive = location.pathname.startsWith('/archive');
 
   function dismissWelcome() {
     localStorage.setItem(VISITED_KEY, '1');
@@ -437,7 +442,7 @@ function Layout() {
         ))}
       </nav>
 
-      <SessionBar />
+      {!isArchive && <SessionBar />}
 
       <main style={{ padding: '20px 24px', maxWidth: 1600, margin: '0 auto', position: 'relative', zIndex: 1 }}>
         <Routes>
@@ -451,6 +456,8 @@ function Layout() {
           <Route path="/team-radio"    element={<TeamRadio />} />
           <Route path="/tyre-strategy" element={<TyreStrategy />} />
           <Route path="/prediction"    element={<PredictionModel />} />
+          <Route path="/archive"       element={<EraSelector />} />
+          <Route path="/archive/:eraId" element={<ArchiveDashboard />} />
         </Routes>
       </main>
     </div>
